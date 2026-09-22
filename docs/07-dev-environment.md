@@ -39,6 +39,12 @@ Every script and test in this repo must read `XZ_BIN` (falling back to a clear
 error if it is unset) rather than assuming `xz` on `PATH`. A future `xz-lang`
 wrapper on `PATH` is preferred, but until then `XZ_BIN` is the contract.
 
+Ruby code resolves the CLI through `RailsXz::Toolchain.xz_bin`, defined in
+`rails-xz-bridge` and shared with `rails-xz-agent`. It reads `XZ_BIN` and raises
+`RailsXz::Toolchain::MissingCompiler` when the value is unset, empty, or not an
+executable file, so a mistyped path fails loudly instead of running a different
+program.
+
 ## 3. Clone and install
 
 ```bash
