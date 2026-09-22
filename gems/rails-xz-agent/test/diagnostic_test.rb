@@ -15,13 +15,13 @@ class DiagnosticTest < Minitest::Test
     parse = diagnostic(category: "parse", confidence: 0.5)
     intent = diagnostic(category: "intent", confidence: 0.9)
 
-    assert_operator parse.rank, :<, intent.rank
+    assert_equal(-1, parse.rank <=> intent.rank)
   end
 
   def test_rank_breaks_ties_by_confidence
     low = diagnostic(category: "type", confidence: 0.1)
     high = diagnostic(category: "type", confidence: 0.8)
 
-    assert_operator high.rank, :<, low.rank
+    assert_equal(-1, high.rank <=> low.rank)
   end
 end
