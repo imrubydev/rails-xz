@@ -2,23 +2,236 @@
 
 module RailsXz
   module Bridge
-    # Build-time generator: emits a Ruby binding module from an .xzint interface
-    # (or the header produced by `xz build --shared`).
+    # Build-time generator: emits a Ruby binding module from an `.xzint`
+    # interface file. The output mirrors `xz pkg gen --lang python`: a module
+    # named after the interface stem, a `Data` class per `@cstruct`, and a typed
+    # declaration per `extern` function, all through RailsXz::Bridge::Facade
+    # (docs/01-bridge.md sections 2 and 6).
     #
-    #   Generator.new("liborder.xzint", lib: "liborder.so").generate
-    #   # => String of Ruby source for Xz::Bindings::Order
+    #   Generator.new("libcurl.xzint", lib: "libcurl.so").generate
+    #   # => String of Ruby source for Xz::Bindings::Libcurl
     #
-    # The first implementation lands in Phase 1. See docs/01-bridge.md.
+    # A signature that is not C-representable is a hard error, never a lossy
+    # cast (ARCHITECTURE.md section 3.1).
     class Generator
-      def initialize(interface_path, lib: nil, module_name: nil)
+      PLATFORM_SUFFIX =
+        case RUBY_PLATFORM
+        when /darwin/ then ".dylib"
+        when /mswin|mingw/ then ".dll"
+        else ".so"
+        end
+
+      def initialize(interface_path, lib: nil, module_name: nil, source: nil)
         @interface_path = interface_path
         @lib = lib
         @module_name = module_name
+        @source = source
       end
 
       def generate
-        raise NotImplementedError,
-              "rails-xz-bridge Generator lands in Phase 1 (docs/05-roadmap.md)"
+        parsed = Interface.parse(source, path: display_path)
+        validate!(parsed)
+        emit(parsed)
+      end
+
+      private
+
+      def source
+        @source || File.read(@interface_path)
+      end
+
+      def display_path
+        @interface_path || "interface.xzint"
+      end
+
+      def stem
+        @stem ||= File.basename(display_path.to_s, ".*")
+      end
+
+      def module_name
+        @module_name || "Xz::Bindings::#{camelize(stem)}"
+      end
+
+      def lib_name
+        @lib || "#{stem}#{PLATFORM_SUFFIX}"
+      end
+
+      def camelize(value)
+        value.split(/[^A-Za-z0-9]+/).reject(&:empty?).map(&:capitalize).join
+      end
+
+      # -- validation ----------------------------------------------------------
+
+      def validate!(parsed)
+        names = parsed.cstructs.keys
+
+        parsed.cstructs.each_value do |record|
+          record.fields.each do |field|
+            check_type!(field.type, names, as_return: false,
+                        context: "@cstruct #{record.name} field '#{field.name}'")
+          end
+        end
+        reject_cycles!(parsed.cstructs)
+
+        parsed.externs.each do |extern|
+          check_not_generic!(extern)
+          extern.params.each do |param|
+            check_type!(param.type, names, as_return: false,
+                        context: "extern '#{extern.name}' parameter '#{param.name}'")
+          end
+          next if extern.return_type.nil?
+
+          check_type!(extern.return_type, names, as_return: true,
+                      context: "extern '#{extern.name}' return")
+        end
+      end
+
+      def check_not_generic!(extern)
+        return if extern.type_params.empty?
+
+        raise GenerationError,
+              "extern '#{extern.name}' is generic; a C ABI export cannot carry a " \
+              "type parameter (docs/01-bridge.md section 1)"
+      end
+
+      def check_type!(type, names, as_return:, context:)
+        if type.generic?
+          raise GenerationError,
+                "#{context}: '#{render_type(type)}' is not C-representable"
+        end
+
+        name = type.name
+        if Types.primitive?(name)
+          if Types.return_only?(name) && !as_return
+            raise GenerationError,
+                  "#{context}: Unit is allowed only as a return"
+          end
+          return
+        end
+
+        return if names.include?(name)
+
+        raise GenerationError, "#{context}: unknown type '#{name}'"
+      end
+
+      def reject_cycles!(cstructs)
+        state = {}
+        cstructs.each_key do |name|
+          walk = lambda do |current|
+            case state[current]
+            when :done then return
+            when :open
+              raise GenerationError,
+                    "@cstruct '#{current}' nests itself; a C struct cannot be cyclic"
+            end
+            state[current] = :open
+            cstructs.fetch(current).fields.each do |field|
+              ref = record_reference(field.type, cstructs)
+              walk.call(ref) if ref
+            end
+            state[current] = :done
+          end
+          walk.call(name)
+        end
+      end
+
+      def record_reference(type, cstructs)
+        return nil if type.generic?
+
+        type.name if cstructs.key?(type.name)
+      end
+
+      # -- emission ------------------------------------------------------------
+
+      def emit(parsed)
+        lines = []
+        lines << "# Generated by rails-xz-bridge from #{display_path}. Do not edit."
+        lines << 'require "rails-xz-bridge"'
+        lines << ""
+        lines << "module #{module_name}"
+        lines << "  extend RailsXz::Bridge::Facade"
+        lines << ""
+        lines << "  xz_library #{double_quoted(lib_name)}"
+
+        ordered_cstructs(parsed).each do |record|
+          lines << ""
+          lines << "  # @cstruct #{record.name} { #{field_doc(record)} }"
+          lines << "  xz_cstruct :#{record.name}, #{brace_list(field_symbols(record))}"
+        end
+
+        parsed.externs.each do |extern|
+          lines << ""
+          lines << "  # #{signature_doc(extern)}"
+          lines << "  xz_func :#{extern.name}, #{brace_list(param_symbols(extern))}, " \
+                   "#{type_symbol(extern.return_type).inspect}"
+        end
+
+        lines << "end"
+        "#{lines.join("\n")}\n"
+      end
+
+      def ordered_cstructs(parsed)
+        emitted = []
+        visiting = {}
+        visit = lambda do |record|
+          return if emitted.include?(record.name) || visiting[record.name]
+
+          visiting[record.name] = true
+          record.fields.each do |field|
+            ref = record_reference(field.type, parsed.cstructs)
+            visit.call(parsed.cstructs.fetch(ref)) if ref
+          end
+          visiting.delete(record.name)
+          emitted << record
+        end
+        parsed.cstructs.each_value { |record| visit.call(record) }
+        emitted
+      end
+
+      def field_doc(record)
+        record.fields.map { |field| "#{field.name}: #{render_type(field.type)}" }.join(", ")
+      end
+
+      def field_symbols(record)
+        record.fields.map { |field| "#{field.name}: #{type_symbol(field.type).inspect}" }.join(", ")
+      end
+
+      def param_symbols(extern)
+        extern.params.map do |param|
+          "#{param.name}: #{type_symbol(param.type, mutable: param.mutable).inspect}"
+        end.join(", ")
+      end
+
+      def brace_list(body)
+        body.empty? ? "{}" : "{ #{body} }"
+      end
+
+      def signature_doc(extern)
+        params = extern.params.map do |param|
+          "#{param.mutable ? 'mut ' : ''}#{param.name}: #{render_type(param.type)}"
+        end.join(", ")
+        returns = extern.return_type ? " -> #{render_type(extern.return_type)}" : ""
+        "extern func #{extern.name}(#{params})#{returns}"
+      end
+
+      def type_symbol(type, mutable: false)
+        return :unit if type.nil?
+
+        base = Types.primitive_symbol(type.name) || :"#{type.name}"
+        mutable ? :"mut_#{base}" : base
+      end
+
+      def render_type(type)
+        return type.name if type.args.empty?
+
+        "#{type.name}[#{type.args.map { |arg| render_type(arg) }.join(', ')}]"
+      end
+
+      # The library name is user-supplied and lands in generated source, so it
+      # is escaped rather than interpolated raw.
+      def double_quoted(value)
+        escaped = value.to_s.gsub("\\", "\\\\").gsub('"', '\\"')
+        "\"#{escaped}\""
       end
     end
   end
