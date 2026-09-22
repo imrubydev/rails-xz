@@ -1,0 +1,44 @@
+# ── Local, per-developer work queues (see AGENT.md) ──────────────────────
+# Each developer drives their own queue with /next_ax1s and /next_ruby.
+NEXT_ax1s.md
+NEXT_ruby.md
+
+# ── Private operator runbook (identity, tokens, local tooling) ───────────
+# Never committed: it is machine-local and must not reach GitHub.
+.local/
+
+# ── Compiled Xz shared libraries and generated headers ───────────────────
+vendor/xz/*
+!vendor/xz/.keep
+*.so
+*.dylib
+*.dll
+*.o
+*.a
+*.h.generated
+
+# ── Ruby / Bundler ───────────────────────────────────────────────────────
+.bundle/
+vendor/bundle/
+*.gem
+pkg/
+tmp/
+log/
+coverage/
+.byebug_history
+
+# ── Local AI tooling (commands + plugin + deps) ──────────────────────────
+# The /next_ax1s and /next_ruby commands and the queue plugin are per-developer
+# tooling and never reach GitHub.
+.opencode/
+
+# ── Editor / OS ──────────────────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# ── Secrets ──────────────────────────────────────────────────────────────
+.env
+.env*.local
+*.pem

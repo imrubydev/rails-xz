@@ -1,0 +1,87 @@
+# 06 — Collaboration
+
+`rails.xz` is maintained by two developers with clearly separated domains. This
+document describes how we work together. The normative rules for commits and
+docs live in [AGENT.md](../AGENT.md) and [CONTRIBUTING.md](../CONTRIBUTING.md);
+this page is the shared mental model.
+
+## 1. The two maintainers
+
+| | ax1s-x1zz | imrubydev |
+|---|---|---|
+| Domain | FFI bridge, binding generation, compiler integration | Rails Engine, service DSL, developer experience |
+| Gems | `rails-xz-bridge`, `rails-xz-agent` (driver) | `rails-xz` (Engine) |
+| Local queue | `NEXT_ax1s.md` | `NEXT_ruby.md` |
+| Focus question | "Does it cross the ABI correctly and fast?" | "Can a Rails developer use this in one line?" |
+
+The agent loop is shared: ax1s-x1zz owns the driver and retry policy;
+imrubydev owns how its results surface in the Engine.
+
+## 2. Ownership and boundaries
+
+- Each developer owns their gem. A change inside a gem you own does not need the
+  other's review, but it still becomes a PR so the history is visible.
+- A change that crosses a boundary (e.g. the Engine needs a new bridge method)
+  starts as an issue labeled with both areas, then a PR. The owning side
+  reviews.
+- `docs/` and `prd.md` are shared: either developer may edit, but a change to
+  the PRD's priorities needs both to agree in the PR thread.
+- Nothing is pushed directly to `main`. Ever.
+
+## 3. The parallel workflow
+
+Because the domains barely overlap, the two work in parallel without blocking:
+
+```
+ax1s-x1zz                          imrubydev
+──────────                         ──────────
+/next_ax1s                         /next_ruby
+  read NEXT_ax1s.md                  read NEXT_ruby.md
+  implement one item                 implement one item
+  verify (bridge tests, xz)          verify (engine tests, xz)
+  commit as ax1s-x1zz                commit as imrubydev
+  (push branch, open PR)             (push branch, open PR)
+        │                                  │
+        └──────────► review ◄──────────────┘
+                        │
+                     merge to main
+```
+
+The integration points are few and explicit:
+
+1. The generated binding shape (`docs/01-bridge.md`) — changes there are
+   announced in the PR and consumed by the Engine.
+2. The `AuditCard` model (`docs/03-audit-engine.md`) — the Engine owns it, the
+   agent writes into it.
+3. The Xz compiler version pin — bumped by whoever needs it, agreed in the PR.
+
+## 4. Daily loop
+
+1. Pull `main`, read your queue, pick the top item.
+2. Work it in the smallest coherent unit.
+3. Verify with the commands in [docs/07-dev-environment.md](07-dev-environment.md).
+4. Commit as yourself (the local runbook defines the exact command).
+5. Push a branch and open a PR; request the other as reviewer.
+6. When approved and green, merge.
+
+## 5. Review
+
+- Cross-domain PRs need the owning side's approval.
+- Review the contract, not just the code: keep the four reviewer questions
+  answerable.
+- If you cannot review within a day, say so and reassign.
+
+## 6. Communication
+
+- Issues for anything that is not a one-line fix.
+- PR descriptions state what changed, which reviewer question it improves, and
+  how it was verified.
+- Design decisions that affect both gems go into the relevant `docs/` file
+  before the code lands.
+
+## 7. What is never shared
+
+- Credentials, tokens, and machine-local files never enter the repository.
+- The per-developer queues (`NEXT_ax1s.md`, `NEXT_ruby.md`) are local-only and
+  gitignored.
+- Each commit is authored by the developer who did the work.

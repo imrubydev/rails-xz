@@ -1,0 +1,5 @@
+source "https://rubygems.org"
+gemspec
+
+gem "rails-xz-agent", path: "../rails-xz-agent"
+gem "rails-xz-bridge", path: "../rails-xz-bridge"
