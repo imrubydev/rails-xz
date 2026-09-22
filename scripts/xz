@@ -1,0 +1,11 @@
+#!/usr/bin/env sh
+# Resolve the Xz *language* CLI.
+#
+# On Linux /usr/bin/xz is XZ Utils (the compression tool), not the language.
+# Never rely on a bare `xz` on PATH; go through XZ_BIN.
+# See docs/07-dev-environment.md section 2.
+set -eu
+
+: "${XZ_BIN:?set XZ_BIN to the Xz language CLI (docs/07-dev-environment.md section 2)}"
+
+exec "$XZ_BIN" "$@"

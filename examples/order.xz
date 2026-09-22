@@ -1,0 +1,9 @@
+/// Computes the payable total for an order.
+/// @intent  Sums line items and applies the tax rate.
+/// @ensures result >= 0.0
+/// @effects none
+@export func payable_total(subtotal: Float, tax_rate: Float) -> Float
+    post result >= 0.0
+{
+    subtotal * (1.0 + tax_rate)
+}
