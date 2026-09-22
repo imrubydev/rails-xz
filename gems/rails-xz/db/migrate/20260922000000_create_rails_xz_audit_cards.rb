@@ -6,10 +6,10 @@ class CreateRailsXzAuditCards < ActiveRecord::Migration[7.1]
       t.string :module_name, null: false
       t.text :signature
       t.text :intent
-      t.jsonb :declared_effects, default: []
-      t.jsonb :derived_effects, default: []
-      t.jsonb :trusted_claims, default: []
-      t.jsonb :diagnostics, default: []
+      t.json :declared_effects, default: []
+      t.json :derived_effects, default: []
+      t.json :trusted_claims, default: []
+      t.json :diagnostics, default: []
       t.text :diff
       t.string :status, null: false, default: "pending"
       t.string :decided_by

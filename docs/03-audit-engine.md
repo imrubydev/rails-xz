@@ -101,14 +101,17 @@ class RailsXz::AuditCard < ApplicationRecord
   # module_name    :string
   # signature      :text
   # intent         :text
-  # declared_effects :jsonb   # ["none"]
-  # derived_effects  :jsonb   # ["io"]
-  # trusted_claims   :jsonb   # [{ claim:, note: }]
-  # diagnostics      :jsonb   # the clearing run
+  # declared_effects :json   # ["none"]
+  # derived_effects  :json   # ["io"]
+  # trusted_claims   :json   # [{ claim:, note: }]
+  # diagnostics      :json   # the clearing run
   # diff             :text    # unified diff vs last approved
   # status           :string  # pending | approved | rejected | blocked
 end
 ```
+
+JSON columns use the portable `json` type, so the Engine mounts in any host
+database (SQLite, PostgreSQL, MySQL); no PostgreSQL-only `jsonb` is required.
 
 ## 8. Non-goals
 
