@@ -18,9 +18,15 @@ class CheckJsonTest < Minitest::Test
   JSON
 
   def test_missing_compiler_raises
-    checker = RailsXz::Agent::CheckJson.new(xz_bin: nil)
+    original = ENV["XZ_BIN"]
+    ENV["XZ_BIN"] = nil
+    checker = RailsXz::Agent::CheckJson.new
 
-    assert_raises(RailsXz::Agent::MissingCompiler) { checker.call("app/xz/order.xz") }
+    assert_raises(RailsXz::Toolchain::MissingCompiler) do
+      checker.call("app/xz/order.xz")
+    end
+  ensure
+    ENV["XZ_BIN"] = original
   end
 
   def test_parse_builds_diagnostics

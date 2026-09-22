@@ -24,6 +24,7 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
 
   spec.add_dependency "activejob", ">= 7.1"
+  spec.add_dependency "rails-xz-bridge", "~> 0.1"
 
   spec.add_development_dependency "minitest", "~> 5.0"
   spec.add_development_dependency "rake", "~> 13.0"
