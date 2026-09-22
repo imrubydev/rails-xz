@@ -8,17 +8,41 @@
     <p class="xz-audit-card__intent"><%= card.intent %></p>
   <% end %>
 
-  <div class="xz-audit-card__effects">
-    <span class="xz-audit-card__effects-label">Derived effects</span>
-    <% card.derived_effects.each do |effect| %>
-      <%= render RailsXz::EffectBadgeComponent.new(effect) %>
-    <% end %>
-  </div>
+  <section class="xz-audit-card__effects" data-effects-match="<%= effects_match? %>">
+    <div class="xz-audit-card__effects-group">
+      <span class="xz-audit-card__effects-label">Declared effects</span>
+      <div class="xz-audit-card__badges">
+        <% card.declared_effects.each do |effect| %>
+          <%= render RailsXz::EffectBadgeComponent.new(effect) %>
+        <% end %>
+      </div>
+    </div>
 
-  <dl class="xz-audit-card__declared">
-    <dt>Declared effects</dt>
-    <dd><%= card.declared_effects.join(", ") %></dd>
-  </dl>
+    <div class="xz-audit-card__effects-group">
+      <span class="xz-audit-card__effects-label">Derived effects</span>
+      <div class="xz-audit-card__badges">
+        <% card.derived_effects.each do |effect| %>
+          <%= render RailsXz::EffectBadgeComponent.new(effect) %>
+        <% end %>
+      </div>
+    </div>
+
+    <% unless effects_match? %>
+      <p class="xz-audit-card__effects-warning">
+        Declared effects do not match the derived profile (I0020).
+      </p>
+    <% end %>
+  </section>
+
+  <% if card.trusted_claims.any? %>
+    <div class="xz-audit-card__trusted">
+      <% card.trusted_claims.each do |trusted| %>
+        <%= render RailsXz::TrustedMarkerComponent.new(
+              claim: trusted["claim"], note: trusted["note"]
+            ) %>
+      <% end %>
+    </div>
+  <% end %>
 
   <% if card.diff.present? %>
     <pre class="xz-audit-card__diff"><%= card.diff %></pre>
