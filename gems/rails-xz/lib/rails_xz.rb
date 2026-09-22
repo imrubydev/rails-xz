@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "rails_xz/version"
+require "view_component"
 require "rails-xz-bridge"
 require "rails-xz-agent"
 require "rails_xz/engine"
