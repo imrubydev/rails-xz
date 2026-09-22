@@ -53,6 +53,52 @@ class AuditCardsControllerTest < ActionDispatch::IntegrationTest
     assert_match "EXTERNAL_FFI", response.body
   end
 
+  test "show renders declared and derived effects side by side" do
+    get "/xz_audit/modules/#{@card.id}"
+
+    assert_response :success
+    assert_match "Declared effects", response.body
+    assert_match "Derived effects", response.body
+    assert_match 'data-effects-match="true"', response.body
+  end
+
+  test "show warns when declared and derived effects diverge" do
+    card = RailsXz::AuditCard.create!(
+      module_name: "diverged",
+      declared_effects: %w[none],
+      derived_effects: %w[io]
+    )
+
+    get "/xz_audit/modules/#{card.id}"
+
+    assert_response :success
+    assert_match 'data-effects-match="false"', response.body
+    assert_match "I0020", response.body
+  end
+
+  test "show marks trusted claims with their note" do
+    card = RailsXz::AuditCard.create!(
+      module_name: "trusted_module",
+      declared_effects: %w[none],
+      derived_effects: %w[none],
+      trusted_claims: [{ "claim" => "no overflow", "note" => "reviewed by alice" }]
+    )
+
+    get "/xz_audit/modules/#{card.id}"
+
+    assert_response :success
+    assert_match "xz-trusted-marker", response.body
+    assert_match "no overflow", response.body
+    assert_match "reviewed by alice", response.body
+  end
+
+  test "show omits the trusted marker when there are no claims" do
+    get "/xz_audit/modules/#{@card.id}"
+
+    assert_response :success
+    refute_match "xz-trusted-marker", response.body
+  end
+
   test "approve records the decision and redirects" do
     post "/xz_audit/modules/#{@card.id}/approve"
 
