@@ -63,6 +63,13 @@ The host application owns the palette; the mapping (label, color token) is the
 contract. An unknown label raises `EffectBadgeComponent::UnknownEffect` instead
 of rendering an uncolored badge.
 
+The card renders declared and derived effects side by side
+(`.xz-audit-card__effects`, carrying `data-effects-match`), so the reviewer sees
+that the badge describes the body and not just the claim; a divergence is called
+out as `I0020`. Every entry of `trusted_claims` renders through
+`RailsXz::TrustedMarkerComponent` (`.xz-trusted-marker`) with its claim and
+review note, so an unproven claim is visible as a proof gap rather than a fact.
+
 ## 4. Diff view
 
 The card shows the candidate source against the last approved revision:
