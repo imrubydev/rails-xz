@@ -26,11 +26,31 @@ class AuditCardsControllerTest < ActionDispatch::IntegrationTest
     assert_match "order", response.body
   end
 
-  test "show renders one card" do
+  test "show renders the audit card with effect badges" do
     get "/xz_audit/modules/#{@card.id}"
 
     assert_response :success
+    assert_match "xz-audit-card", response.body
     assert_match "Computes the payable total.", response.body
+    assert_match "xz-effect-badge--green", response.body
+    assert_match "PURE", response.body
+    assert_match "Approve", response.body
+    assert_match "Reject", response.body
+  end
+
+  test "show colors each derived effect" do
+    card = RailsXz::AuditCard.create!(
+      module_name: "io_module",
+      declared_effects: %w[io extern],
+      derived_effects: %w[io extern]
+    )
+
+    get "/xz_audit/modules/#{card.id}"
+
+    assert_response :success
+    assert_match "xz-effect-badge--blue", response.body
+    assert_match "xz-effect-badge--red", response.body
+    assert_match "EXTERNAL_FFI", response.body
   end
 
   test "approve records the decision and redirects" do

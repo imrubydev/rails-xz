@@ -1,0 +1,31 @@
+<article class="xz-audit-card" data-status="<%= card.status %>">
+  <header class="xz-audit-card__header">
+    <h2 class="xz-audit-card__name"><%= card.module_name %></h2>
+    <span class="xz-audit-card__status"><%= card.status %></span>
+  </header>
+
+  <% if card.intent.present? %>
+    <p class="xz-audit-card__intent"><%= card.intent %></p>
+  <% end %>
+
+  <div class="xz-audit-card__effects">
+    <span class="xz-audit-card__effects-label">Derived effects</span>
+    <% card.derived_effects.each do |effect| %>
+      <%= render RailsXz::EffectBadgeComponent.new(effect) %>
+    <% end %>
+  </div>
+
+  <dl class="xz-audit-card__declared">
+    <dt>Declared effects</dt>
+    <dd><%= card.declared_effects.join(", ") %></dd>
+  </dl>
+
+  <% if card.diff.present? %>
+    <pre class="xz-audit-card__diff"><%= card.diff %></pre>
+  <% end %>
+
+  <footer class="xz-audit-card__actions">
+    <%= button_to "Approve", helpers.approve_audit_card_path(card), method: :post %>
+    <%= button_to "Reject", helpers.reject_audit_card_path(card), method: :post %>
+  </footer>
+</article>

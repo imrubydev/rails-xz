@@ -1,14 +1,2 @@
 <%# One module: contract, effect badges, diff, and the approval action. %>
-<h1><%= @card.module_name %></h1>
-
-<p><strong>Intent:</strong> <%= @card.intent %></p>
-
-<p>
-  <strong>Declared effects:</strong> <%= @card.declared_effects.join(", ") %>
-  <strong>Derived effects:</strong> <%= @card.derived_effects.join(", ") %>
-</p>
-
-<pre class="diff"><%= @card.diff %></pre>
-
-<%= button_to "Approve", approve_audit_card_path(@card), method: :post %>
-<%= button_to "Reject", reject_audit_card_path(@card), method: :post %>
+<%= render RailsXz::AuditCardComponent.new(card: @card) %>

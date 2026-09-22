@@ -7,7 +7,7 @@
       <%= link_to card.module_name, card %>
       <span class="status"><%= card.status %></span>
       <% card.derived_effects.each do |effect| %>
-        <span class="badge"><%= effect.upcase %></span>
+        <%= render RailsXz::EffectBadgeComponent.new(effect) %>
       <% end %>
     </li>
   <% end %>
