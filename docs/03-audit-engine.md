@@ -56,6 +56,13 @@ A function whose declared effects match the derived profile shows a single badge
 A function carrying an unproven `@trusted` claim shows a distinct "trusted"
 marker so the human sees the proof gap, not just the claim.
 
+The Engine renders each badge through `RailsXz::EffectBadgeComponent`, which maps
+a label to its badge name and color token and emits
+`<span class="xz-effect-badge xz-effect-badge--<color>" data-effect="<label>">`.
+The host application owns the palette; the mapping (label, color token) is the
+contract. An unknown label raises `EffectBadgeComponent::UnknownEffect` instead
+of rendering an uncolored badge.
+
 ## 4. Diff view
 
 The card shows the candidate source against the last approved revision:
