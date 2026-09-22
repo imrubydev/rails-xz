@@ -1,2 +1,5 @@
 source "https://rubygems.org"
 gemspec
+
+# rails-xz-agent shares RailsXz::Toolchain with the bridge gem.
+gem "rails-xz-bridge", path: "../rails-xz-bridge"

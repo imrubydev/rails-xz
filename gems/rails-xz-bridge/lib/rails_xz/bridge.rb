@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "rails_xz/toolchain"
 require "rails_xz/bridge/version"
 require "rails_xz/bridge/errors"
 require "rails_xz/bridge/loader"
