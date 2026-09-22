@@ -20,6 +20,7 @@ vendor/xz/*
 # ── Ruby / Bundler ───────────────────────────────────────────────────────
 .bundle/
 vendor/bundle/
+Gemfile.lock
 *.gem
 pkg/
 tmp/

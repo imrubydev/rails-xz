@@ -3,3 +3,7 @@ gemspec
 
 gem "rails-xz-agent", path: "../rails-xz-agent"
 gem "rails-xz-bridge", path: "../rails-xz-bridge"
+
+# json 3.x dropped the positional options hash that ActiveSupport 8.1 still
+# passes to JSON.parse; pin to 2.x until Rails has a compatible release.
+gem "json", "~> 2.9"
