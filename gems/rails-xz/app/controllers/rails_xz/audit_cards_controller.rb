@@ -13,16 +13,31 @@ module RailsXz
     def approve
       card = AuditCard.find(params[:id])
       card.approve!(by: current_actor)
-      redirect_to card
+      render_decision(card)
     end
 
     def reject
       card = AuditCard.find(params[:id])
       card.reject!(by: current_actor)
-      redirect_to card
+      render_decision(card)
     end
 
     private
+
+    # The card carries its own DOM id, so a Turbo form submission replaces just
+    # that card with the decided one instead of reloading the page. A plain
+    # request still falls back to the show page. See docs/03-audit-engine.md §2.
+    def render_decision(card)
+      respond_to do |format|
+        format.html { redirect_to card }
+        format.turbo_stream do
+          render turbo_stream: turbo_stream.replace(
+            card,
+            AuditCardComponent.new(card: card)
+          )
+        end
+      end
+    end
 
     # The host app owns authentication; the Engine only reads the acting user.
     def current_actor

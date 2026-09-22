@@ -82,7 +82,10 @@ The card shows the candidate source against the last approved revision:
 ## 5. Approval action
 
 P0: approval is recorded as a state change on the `AuditCard` plus an audit log
-entry (who, when, module, decision, override note).
+entry (who, when, module, decision, override note). The decision request answers
+with a Turbo Stream (`text/vnd.turbo-stream.html`) that replaces the card's DOM
+id, so the board reflects the new status without a full page reload; a plain
+HTML request falls back to the show page.
 
 P1: one-click approval triggers:
 
