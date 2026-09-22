@@ -7,5 +7,6 @@ module RailsXz
     SymbolError = Class.new(Error)
     GenerationError = Class.new(Error)
     MarshallError = Class.new(Error)
+    InterfaceError = Class.new(Error)
   end
 end

@@ -3,7 +3,10 @@
 require "rails_xz/toolchain"
 require "rails_xz/bridge/version"
 require "rails_xz/bridge/errors"
+require "rails_xz/bridge/types"
+require "rails_xz/bridge/interface"
 require "rails_xz/bridge/loader"
+require "rails_xz/bridge/facade"
 require "rails_xz/bridge/generator"
 
 module RailsXz

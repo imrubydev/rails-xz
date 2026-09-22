@@ -125,22 +125,62 @@ caller cannot forget to check it.
 
 ## 6. Generated module shape
 
+The generator emits one Ruby module per interface, named after the source stem
+(`libcurl.xzint` → `Xz::Bindings::Libcurl`). The module `extend`s
+`RailsXz::Bridge::Facade` and declares the library, every `@cstruct`, and every
+function. Declarations are emitted in dependency order: a record precedes any
+record that nests it.
+
 ```ruby
-# app/xz/bindings/order.rb (generated — do not edit)
-module Xz::Bindings::Order
+# app/xz/bindings/libcurl.rb (generated — do not edit)
+require "rails-xz-bridge"
+
+module Xz::Bindings::Libcurl
   extend RailsXz::Bridge::Facade
 
-  # @cstruct Color { r: usize, g: usize, b: usize, a: usize }
-  Color = Data.define(:r, :g, :b, :a)
+  xz_library "libcurl.so"
 
-  # @export payable_total(subtotal: Float, tax_rate: Float) -> Float
-  payable_total(:double, :double) # => Float
+  # @cstruct curl_slist { data: Str, next: Ptr }
+  xz_cstruct :curl_slist, { data: :str, next: :ptr }
 
-  # @export parse_amount(text: Str, mut out: Float) -> Int
-  # returns [status, out]; raises Xz::Bindings::Order::ParseError unless status.zero?
-  parse_amount(:string, :out_float) # => Integer
+  # extern func curl_easy_init() -> Ptr
+  xz_func :curl_easy_init, {}, :ptr
+
+  # extern func curl_easy_setopt(handle: Ptr, option: Int, param: Ptr) -> Int
+  xz_func :curl_easy_setopt, { handle: :ptr, option: :int, param: :ptr }, :int
 end
 ```
+
+### 6.1 Type symbols
+
+Every argument type is a symbol. A primitive keeps its lowercase name, a `mut`
+parameter is prefixed `mut_`, and a `@cstruct` is its declared name.
+
+| Xz | symbol | Ruby value |
+|---|---|---|
+| `Bool` | `:bool` | `true` / `false` |
+| `Int` | `:int` | `Integer` |
+| `usize` | `:usize` | `Integer` |
+| `Float` | `:float` | `Float` |
+| `Char` | `:char` | one-character `String` |
+| `Str` | `:str` | `String` (UTF-8) |
+| `Bytes` | `:bytes` | `String` (ASCII-8BIT) |
+| `Ptr` | `:ptr` | opaque handle |
+| `Unit` (return only) | `:unit` | `nil` |
+| `@cstruct Color` | `:Color` | `Data` instance |
+| `mut out: Float` | `:mut_float` | in/out cell |
+
+### 6.2 `Facade` contract
+
+- `xz_library(path)` records the shared object; the loader resolves it lazily on
+  the first call.
+- `xz_cstruct(name, fields)` defines a Ruby `Data` constant with matching field
+  order. The C layout stays authoritative.
+- `xz_func(name, params, returns)` defines a positional Ruby method that marshals
+  its arguments to the C ABI, calls the symbol, and returns the Xz value.
+- A type the marshaller cannot represent is a `RailsXz::Bridge::MarshallError`,
+  never a silent cast. The current slice marshals scalars only; `Str`, `Bytes`,
+  `@cstruct`, handles, and `mut` cells fail loudly until their slice lands.
 
 ## 7. GVL and threading
 
