@@ -48,13 +48,14 @@ module RailsXz
         @cstruct_classes = {}
       end
 
-      def call(name, params, returns, args)
+      def call(name, params, returns, args, release_gvl: false)
         function = @loader.ffi_function(
           name.to_s,
           return_type(returns, context: "#{name} return"),
           params.map do |param, symbol|
             argument_type(symbol, context: "#{name} parameter '#{param}'")
-          end
+          end,
+          blocking: release_gvl
         )
 
         keepalive = []

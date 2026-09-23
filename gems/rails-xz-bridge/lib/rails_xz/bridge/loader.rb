@@ -43,20 +43,25 @@ module RailsXz
         !@handle.nil?
       end
 
-      def function(name, args, ret)
+      # `need_gvl` mirrors Fiddle: true holds the GVL across the call, false
+      # (the default) releases it. The Facade decides from the function's
+      # effect profile (docs/01-bridge.md section 7).
+      def function(name, args, ret, need_gvl: false)
         raise SymbolError, "library not loaded; call #load!" unless @handle
 
-        Fiddle::Function.new(@handle[name.to_s], args, ret)
+        Fiddle::Function.new(@handle[name.to_s], args, ret, need_gvl: need_gvl)
       rescue Fiddle::DLError => e
         raise SymbolError, "missing symbol #{name.inspect}: #{e.message}"
       end
 
       # Binds a symbol through the ffi gem. Used for signatures Fiddle cannot
-      # express, namely a C struct passed or returned by value.
-      def ffi_function(name, ret, args)
+      # express, namely a C struct passed or returned by value. `blocking`
+      # mirrors ffi: true releases the GVL across the call, false (the default)
+      # holds it.
+      def ffi_function(name, ret, args, blocking: false)
         raise SymbolError, "library not loaded; call #load!" unless @handle
 
-        FFI::Function.new(ret, args, ffi_library.find_function(name.to_s))
+        FFI::Function.new(ret, args, ffi_library.find_function(name.to_s), blocking: blocking)
       rescue FFI::NotFoundError => e
         raise SymbolError, "missing symbol #{name.inspect}: #{e.message}"
       end

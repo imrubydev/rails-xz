@@ -57,6 +57,46 @@ class GeneratorTest < Minitest::Test
     assert_includes output, "xz_func :parse_amount, { text: :str, out: :mut_float }, :int"
   end
 
+  def test_emits_the_effect_profile_when_given
+    output = generate("extern func add(a: Int, b: Int) -> Int\n", effects: { add: [:none] })
+
+    assert_includes output, "xz_func :add, { a: :int, b: :int }, :int, effects: [:none]"
+  end
+
+  def test_emits_nothing_for_a_function_without_a_profile
+    output = generate("extern func add(a: Int, b: Int) -> Int\n")
+
+    assert_includes output, "xz_func :add, { a: :int, b: :int }, :int"
+    refute_includes output, "effects:"
+  end
+
+  def test_rejects_an_unknown_effect_label
+    error = assert_raises(RailsXz::Bridge::GenerationError) do
+      generate("extern func add(a: Int, b: Int) -> Int\n", effects: { add: [:network] })
+    end
+
+    assert_match(/unknown effect/, error.message)
+  end
+
+  def test_rejects_none_combined_with_another_effect
+    error = assert_raises(RailsXz::Bridge::GenerationError) do
+      generate("extern func add(a: Int, b: Int) -> Int\n", effects: { add: %i[none io] })
+    end
+
+    assert_match(/cannot be combined/, error.message)
+  end
+
+  def test_effect_profile_reaches_the_declared_function
+    output = generate("extern func add(a: Int, b: Int) -> Int\n",
+                      module_name: "EffectBinding", effects: { add: [:io] })
+
+    namespace = Module.new
+    namespace.module_eval(output)
+    binding = namespace.const_get(:EffectBinding)
+
+    assert_equal [:io], binding.declared_functions.fetch(:add)[:effects]
+  end
+
   def test_emits_nested_cstructs_in_dependency_order
     output = generate(<<~XZINT)
       @cstruct record Outer {
