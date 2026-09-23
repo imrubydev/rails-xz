@@ -65,7 +65,8 @@ development (and optionally staging) environment.
 
 ### 3.1 `rails-xz-bridge`
 
-Inputs: an `.xzint` interface file or a `.xz` source with `@export` functions.
+Inputs: an `.xzint` interface file, the C header `xz build --shared` writes, or
+a `.xz` source with `@export` functions.
 Outputs: a Ruby module with typed methods and a loader.
 
 ```ruby
