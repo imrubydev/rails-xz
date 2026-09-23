@@ -61,7 +61,7 @@ diff alone, with the audit time down ≥ 70% versus line-by-line review.
 Goal: production-ready and installable.
 
 - [ ] `[B]` C ABI runtime memory-leak checks and hot-reload stabilization.
-- [ ] `[B]` Version pinning lockfile and `VersionError` hardening.
+- [ ] `[B]` ABI-digest pin lockfile and `VersionError` hardening.
 - [ ] `[E]` Sample Rails app in `examples/demo_app` wiring the full path.
 - [ ] `[S]` Publish the `rails-xz`, `rails-xz-bridge`, and `rails-xz-agent`
   gems and tag v0.1.0.

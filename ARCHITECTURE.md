@@ -78,7 +78,7 @@ end
 
 # generated: app/xz/bindings/_loader.rb
 # Loads vendor/xz/liborder.so through Fiddle, or ffi for by-value structs.
-# Raises RailsXz::Bridge::VersionError if the library's xz version != pinned.
+# Raises RailsXz::Bridge::VersionError if the library's ABI digest != pinned.
 ```
 
 Rules:
@@ -206,7 +206,7 @@ always reflects the body, not just the claim.
   fixes. This is the only feedback channel the agent uses.
 - **Generation-time:** a non-C-representable `@export` or a missing `.xzint`
   symbol is a hard error; the bridge refuses to emit a lossy binding.
-- **Load-time:** a missing symbol or an Xz version mismatch raises
+- **Load-time:** a missing symbol or an ABI digest mismatch raises
   `RailsXz::Bridge::SymbolError` / `VersionError`, never a silent fallback.
 - **Runtime:** approved modules return `Result`; the wrapper maps the error
   channel to a typed Ruby exception at the service-object boundary. An unhandled
@@ -229,8 +229,8 @@ while a call is in flight is undefined; the loader never reloads mid-call.
 ## 8. Determinism
 
 Given the same Xz version and source, `xz build --shared` produces identical
-binary behavior. `rails.xz` pins the compiler version in a lockfile and refuses
-to bind a shared library built by a different version.
+binary behavior. `rails.xz` pins the ABI by the digest of the compiler header
+and refuses to bind a shared library whose header differs.
 
 ## 9. Trust boundaries
 

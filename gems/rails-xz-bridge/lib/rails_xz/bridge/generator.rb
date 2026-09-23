@@ -52,8 +52,18 @@ module RailsXz
         File.extname(display_path.to_s) == ".h"
       end
 
+      # The ABI digest is only defined for a compiler header: an `.xzint`
+      # interface is a hand-written boundary, not the compiler's own ABI
+      # description, so the binding it produces is not pinned
+      # (docs/01-bridge.md section 3).
+      def abi_digest
+        return @abi_digest if defined?(@abi_digest)
+
+        @abi_digest = header_source? ? Header.digest(source) : nil
+      end
+
       def source
-        @source || File.read(@interface_path)
+        @source ||= File.read(@interface_path)
       end
 
       def display_path
@@ -190,6 +200,7 @@ module RailsXz
         lines << "  extend RailsXz::Bridge::Facade"
         lines << ""
         lines << "  xz_library #{double_quoted(lib_name)}"
+        lines << "  xz_abi_digest #{double_quoted(abi_digest)}" if abi_digest
 
         ordered_cstructs(parsed).each do |record|
           lines << ""

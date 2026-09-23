@@ -90,11 +90,20 @@ no native dependency beyond the gem itself.
 The loader:
 
 1. resolves the shared object path from the generated metadata,
-2. verifies the Xz compiler version recorded in the metadata,
+2. verifies the ABI digest recorded in the binding against the header beside
+   the library,
 3. registers each symbol with its C signature (Fiddle) or ffi signature,
 4. returns a typed facade.
 
-A version mismatch raises `RailsXz::Bridge::VersionError`. A missing symbol
+The Xz compiler exposes no version string, so the binding pins the ABI by the
+digest of the header `xz build --shared` writes beside the library — the
+compiler's own description of the ABI (§1). A binding generated from a `.h`
+records that digest (`xz_abi_digest "sha256:..."`); at load time the loader
+recomputes the digest of the companion header and refuses to bind when the
+header is absent or different. A binding generated from an `.xzint` is not
+pinned: an interface file is a hand-authored boundary, not the compiler's ABI.
+
+A digest mismatch raises `RailsXz::Bridge::VersionError`. A missing symbol
 raises `RailsXz::Bridge::SymbolError`. Both are actionable, not silent.
 
 ## 4. Marshalling
@@ -247,6 +256,8 @@ parameter is prefixed `mut_`, and a `@cstruct` is its declared name.
 
 - `xz_library(path)` records the shared object; the loader resolves it lazily on
   the first call.
+- `xz_abi_digest(digest)` records the compiler ABI the binding was generated
+  from; the loader enforces it against the companion header (§3).
 - `xz_cstruct(name, fields)` defines a Ruby `Data` constant with matching field
   order. The C layout stays authoritative.
 - `xz_func(name, params, returns, effects: nil, release_gvl: false)` defines a

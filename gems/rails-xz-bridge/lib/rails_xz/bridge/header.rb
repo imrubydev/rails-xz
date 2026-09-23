@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "digest"
+
 module RailsXz
   module Bridge
     # Parser for the C header `xz build --shared` writes beside a shared
@@ -30,6 +32,13 @@ module RailsXz
       }.freeze
 
       module_function
+
+      # A stable identity for the ABI a header describes. The compiler exposes no
+      # version string, so its own header is the source of truth: the digest pins
+      # the exact ABI the binding was generated from (docs/01-bridge.md section 3).
+      def digest(source)
+        "sha256:#{Digest::SHA256.hexdigest(source)}"
+      end
 
       def parse(source, path: "library.h")
         Parser.new(Tokenizer.new(source, path).tokens, path).parse
