@@ -44,9 +44,7 @@
     </div>
   <% end %>
 
-  <% if card.diff.present? %>
-    <pre class="xz-audit-card__diff"><%= card.diff %></pre>
-  <% end %>
+  <%= render RailsXz::DiffComponent.new(diff: card.diff, diagnostics: card.diagnostics) %>
 
   <footer class="xz-audit-card__actions">
     <%= button_to "Approve", helpers.approve_audit_card_path(card), method: :post %>

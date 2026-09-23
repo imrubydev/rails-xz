@@ -6,6 +6,7 @@ require "turbo-rails"
 require "rails-xz-bridge"
 require "rails-xz-agent"
 require "rails_xz/engine"
+require "rails_xz/unified_diff"
 require "rails_xz/xz_module"
 
 # rails.xz — a Rails Engine for AI-written, human-reviewed Xz modules.
