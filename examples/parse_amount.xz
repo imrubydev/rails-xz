@@ -1,7 +1,7 @@
 /// Parses an amount and writes it through an out-parameter.
 /// @intent  Returns 0 on success and writes the value to `out`; >0 is an error code.
 /// @ensures result >= 0
-/// @effects none
+/// @effects mut
 @export func parse_amount(text: Str, mut out: Float) -> Int
     post result >= 0
 {

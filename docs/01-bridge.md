@@ -155,7 +155,7 @@ preference:
 
    ```xz
    /// @intent  Parses an amount; writes the value and returns a status code.
-   /// @effects none
+   /// @effects mut
    @export func parse_amount(text: Str, mut out: Float) -> Int
        post result >= 0
    {

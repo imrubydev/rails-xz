@@ -93,6 +93,6 @@ class ExportSourceTest < Minitest::Test
     parse_amount = File.expand_path("../../../examples/parse_amount.xz", __dir__)
 
     assert_equal({ payable_total: [:none] }, effects(File.read(order)))
-    assert_equal({ parse_amount: [:none] }, effects(File.read(parse_amount)))
+    assert_equal({ parse_amount: [:mut] }, effects(File.read(parse_amount)))
   end
 end
