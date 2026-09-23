@@ -31,7 +31,7 @@ generated binding, with measured overhead under 5%.
 Goal: an LLM writes `.xz` code that passes `xz check-json` without human help,
 and a Rails developer can wire it in with a one-line DSL.
 
-- [ ] `[E]` `RailsXz::XzModule` DSL for service objects
+- [x] `[E]` `RailsXz::XzModule` DSL for service objects
   (`xz_module "order", effects: :none`).
 - [ ] `[S]` `RailsXz::Agent::GenerateModuleJob` and the N-step repair loop.
 - [ ] `[S]` Diagnostic ranking; P1 adds span-based filtering.

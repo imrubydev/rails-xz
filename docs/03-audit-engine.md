@@ -143,7 +143,39 @@ end
 JSON columns use the portable `json` type, so the Engine mounts in any host
 database (SQLite, PostgreSQL, MySQL); no PostgreSQL-only `jsonb` is required.
 
-## 8. Non-goals
+## 8. Service DSL
+
+The Engine also owns the service-object DSL that wires an approved module into a
+Rails class (Phase 2, [docs/05-roadmap.md](05-roadmap.md)). It is one macro:
+
+```ruby
+class Orders::TotalService
+  include RailsXz::XzModule
+  xz_module "order", effects: :none
+
+  def call(order)
+    payable_total(order.subtotal, order.tax_rate)
+  end
+end
+```
+
+- `include RailsXz::XzModule` adds the class macro; `xz_module name, effects:`
+  resolves the generated binding `Xz::Bindings::<Camelized name>`
+  ([docs/01-bridge.md](01-bridge.md) §6).
+- A generated binding declares its functions as module-level methods through
+  `RailsXz::Bridge::Facade`, so `include` alone does not make them instance
+  methods. The DSL forwards each declared function to the binding; a method the
+  service defines itself is never overwritten.
+- A missing binding raises `RailsXz::XzModule::MissingBinding`; an effect label
+  outside `none`/`mut`/`io`/`chan`/`extern` raises
+  `RailsXz::XzModule::UnknownEffect`. Neither degrades silently.
+- The declared effect profile and the resolved binding are exposed as class
+  metadata (`xz_module_name`, `xz_effects`, `xz_binding`) for the audit board
+  and observability. The compiler already guarantees the declared `@effects`
+  equals the derived profile (`I0020`), so this metadata mirrors a checked
+  claim rather than a hand-maintained one.
+
+## 9. Non-goals
 
 - The audit engine does not edit Xz code. Edits go back through the agent or the
   developer's editor.
