@@ -2,6 +2,7 @@
 
 require "rails_xz/version"
 require "view_component"
+require "turbo-rails"
 require "rails-xz-bridge"
 require "rails-xz-agent"
 require "rails_xz/engine"

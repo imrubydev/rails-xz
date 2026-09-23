@@ -115,4 +115,30 @@ class AuditCardsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "rejected", @card.reload.status
     refute_nil @card.decided_at
   end
+
+  test "approve over Turbo Streams replaces the card in place" do
+    post "/xz_audit/modules/#{@card.id}/approve", as: :turbo_stream
+
+    assert_response :success
+    assert_equal "text/vnd.turbo-stream.html", response.media_type
+    assert_match(
+      %(action="replace" target="#{ActionView::RecordIdentifier.dom_id(@card)}"),
+      response.body
+    )
+    assert_match 'data-status="approved"', response.body
+    assert_equal "approved", @card.reload.status
+  end
+
+  test "reject over Turbo Streams replaces the card in place" do
+    post "/xz_audit/modules/#{@card.id}/reject", as: :turbo_stream
+
+    assert_response :success
+    assert_equal "text/vnd.turbo-stream.html", response.media_type
+    assert_match(
+      %(action="replace" target="#{ActionView::RecordIdentifier.dom_id(@card)}"),
+      response.body
+    )
+    assert_match 'data-status="rejected"', response.body
+    assert_equal "rejected", @card.reload.status
+  end
 end

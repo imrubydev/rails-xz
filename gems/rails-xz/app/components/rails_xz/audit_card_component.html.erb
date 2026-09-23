@@ -1,4 +1,4 @@
-<article class="xz-audit-card" data-status="<%= card.status %>">
+<article id="<%= helpers.dom_id(card) %>" class="xz-audit-card" data-status="<%= card.status %>">
   <header class="xz-audit-card__header">
     <h2 class="xz-audit-card__name"><%= card.module_name %></h2>
     <span class="xz-audit-card__status"><%= card.status %></span>
