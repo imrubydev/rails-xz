@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "tmpdir"
 
 class CheckJsonTest < Minitest::Test
   SAMPLE = <<~JSON
@@ -49,5 +50,29 @@ class CheckJsonTest < Minitest::Test
     assert_raises(RailsXz::Agent::DiagnosticsParseError) do
       checker.parse("not json", "", status)
     end
+  end
+
+  def test_strict_is_forwarded_to_the_cli
+    Dir.mktmpdir("rails-xz-strict") do |dir|
+      log = File.join(dir, "args")
+      stub = stub_xz(dir, log)
+
+      RailsXz::Agent::CheckJson.new(xz_bin: stub, strict: true).call("app/xz/order.xz")
+
+      assert_includes File.read(log), "--strict"
+    end
+  end
+
+  private
+
+  def stub_xz(dir, log)
+    path = File.join(dir, "xz")
+    File.write(path, <<~SH)
+      #!/bin/sh
+      printf '%s\\n' "$@" > #{log}
+      echo '[]'
+    SH
+    File.chmod(0o755, path)
+    path
   end
 end
