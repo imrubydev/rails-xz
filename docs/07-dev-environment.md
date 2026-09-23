@@ -46,6 +46,14 @@ Ruby code resolves the CLI through `RailsXz::Toolchain.xz_bin`, defined in
 executable file, so a mistyped path fails loudly instead of running a different
 program.
 
+It also verifies the resolved binary is the *language* CLI, not XZ Utils: the
+probe runs `<path> --version` and requires the Xz usage banner, which names the
+`check-json` subcommand. XZ Utils answers `--version` with an `xz (XZ Utils)`
+banner, so an `XZ_BIN` that points at `/usr/bin/xz` is rejected with
+`MissingCompiler` rather than silently compressing. `Toolchain.configured?`
+applies the same probe, so a test that skips without the compiler also skips
+when `XZ_BIN` names the wrong program.
+
 ## 3. Clone and install
 
 ```bash
