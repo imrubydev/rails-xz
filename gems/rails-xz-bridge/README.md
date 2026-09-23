@@ -1,7 +1,9 @@
 # rails-xz-bridge
 
 The Ruby FFI bridge: generate bindings from `.xzint` interfaces and load
-compiled Xz shared libraries through `Fiddle` or `ffi`.
+compiled Xz shared libraries. Scalar- and pointer-only calls go through
+`Fiddle`; by-value aggregates (`Str`, `Bytes`, `@cstruct`) go through `ffi`,
+because Fiddle cannot pass or return a C struct by value.
 
 Part of [rails.xz](https://github.com/imrubydev/rails-xz). See
 [docs/01-bridge.md](../../docs/01-bridge.md).

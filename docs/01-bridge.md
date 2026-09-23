@@ -47,23 +47,30 @@ TypeScript.
 
 ## 3. Loading the library
 
-| Backend | Mechanism | Notes |
+| Backend | Mechanism | Used for |
 |---|---|---|
-| `Fiddle` (default) | Ruby stdlib `dlopen` + `Function` | No native dependency; ships with Ruby. |
-| `ffi` | `ffi` gem | Faster for high-frequency calls; optional. |
+| `Fiddle` | Ruby stdlib `dlopen` + `Function` | Scalar- and pointer-only signatures; no native dependency. |
+| `ffi` | `ffi` gem | Any signature that crosses a by-value aggregate. |
+
+Fiddle cannot pass or return a C struct by value, and the Xz ABI crosses `Str`,
+`Bytes`, and `@cstruct` as structs (§1). A signature is therefore bound through
+the `ffi` gem the moment it contains one of those types; everything else stays on
+Fiddle. The choice is per signature and is not a fallback: a by-value aggregate
+never degrades to a pointer or a lossy cast.
+
+`ffi` is a runtime dependency of `rails-xz-bridge`. Fiddle remains the backend
+for the common scalar/pointer case so a binding that needs no aggregate carries
+no native dependency beyond the gem itself.
 
 The loader:
 
 1. resolves the shared object path from the generated metadata,
 2. verifies the Xz compiler version recorded in the metadata,
-3. registers each symbol with its C signature,
+3. registers each symbol with its C signature (Fiddle) or ffi signature,
 4. returns a typed facade.
 
 A version mismatch raises `RailsXz::Bridge::VersionError`. A missing symbol
 raises `RailsXz::Bridge::SymbolError`. Both are actionable, not silent.
-
-`Fiddle` is the default so that installing `rails.xz` adds no native build
-dependency. The `ffi` gem is an opt-in acceleration for hot call paths.
 
 ## 4. Marshalling
 
@@ -77,8 +84,12 @@ dependency. The `ffi` gem is an opt-in acceleration for hot call paths.
 `Str` crosses as UTF-8 bytes into an `XzStr` struct; the binding encodes on call
 and decodes on return. `Bytes` crosses as `String` with `Encoding::BINARY` and is
 passed through without transcoding. A `Str`/`Bytes` return value is read from the
-returned pointer/length pair; ownership of any newly allocated return buffer is
-defined by the wrapper contract (see §5).
+returned pointer/length pair and copied into a fresh Ruby String.
+
+The shared library exports no release hook, so the binding cannot free a buffer
+the callee allocated for a return value: a function that allocates a fresh
+return string leaks that buffer. Reclaiming it needs an ownership contract the
+`.xzint` grammar cannot yet express (§9).
 
 ### 4.3 `@cstruct`
 
@@ -86,12 +97,23 @@ Generated as a Ruby `Data` (immutable) or `Struct` with the same field order and
 alignment. Nested `@cstruct` records nest as nested objects. The Ruby side never
 reorders fields; the C layout is authoritative.
 
+A `@cstruct` crosses by value: the binding builds the C struct from a `Data`
+instance on call and reads a returned struct back into a `Data`. A `Str`,
+`Bytes`, or `Ptr` field is marshalled by the same rules as a parameter, and a
+nested `@cstruct` field nests by value.
+
 ### 4.4 Handles
 
-A `@cstruct` containing a `Ptr` is a handle type: never copied, handed off only
-with `transfer`. The Ruby binding exposes it as an opaque object whose methods
-route back into the library; it is not a plain value object. A handle owns its
-lifetime; the binding raises if a transferred handle is used again.
+`Ptr` crosses as `RailsXz::Bridge::Handle`: a frozen, opaque wrapper around the
+address, never a plain number. The binding rejects a bare Integer in a `Ptr`
+position and a non-handle in a `@cstruct` field, so an address cannot be passed
+by accident; `nil` is the one null form. `Handle` exposes `#to_i` and `#null?`
+for interop.
+
+`transfer` and handle lifetime are not implemented yet: the binding does not
+track ownership, so a handle may currently be passed again. The full rule — a
+handle is never copied and is dead after `transfer` — lands with the transfer
+slice.
 
 ## 5. The `Result` problem
 
@@ -179,8 +201,8 @@ parameter is prefixed `mut_`, and a `@cstruct` is its declared name.
 - `xz_func(name, params, returns)` defines a positional Ruby method that marshals
   its arguments to the C ABI, calls the symbol, and returns the Xz value.
 - A type the marshaller cannot represent is a `RailsXz::Bridge::MarshallError`,
-  never a silent cast. The current slice marshals scalars only; `Str`, `Bytes`,
-  `@cstruct`, handles, and `mut` cells fail loudly until their slice lands.
+  never a silent cast. The current slice marshals scalars, `Str`, `Bytes`,
+  `@cstruct`, and `Ptr` handles; `mut` cells fail loudly until their slice lands.
 
 ## 7. GVL and threading
 
@@ -203,5 +225,6 @@ set of functions.
   plan: the CLI, with the gem generator as a compatible fallback.)
 - Zero-copy ownership rules for retained pointers need a contract syntax that
   `.xzint` cannot currently express.
-- Should `Fiddle` or `ffi` be the default once `ffi` is widely available on the
-  target Ruby versions?
+- `Fiddle` is the default for scalar/pointer signatures and `ffi` is required for
+  by-value aggregates (§3); the open question is whether to move the whole
+  runtime to `ffi` once it is available on every target Ruby version.
