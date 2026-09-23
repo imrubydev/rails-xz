@@ -220,6 +220,72 @@ class ApprovalTest < ActiveSupport::TestCase
     assert_equal "pending", @card.reload.status
   end
 
+  test "removes the artifacts it created when the commit fails" do
+    runner, = build_runner(fail_on: ->(argv) { argv[1] == "commit" })
+
+    assert_raises(RailsXz::Approval::CommitFailed) { approve(runner: runner) }
+
+    refute @root.join("lib/xz/bindings/order.rb").exist?
+    refute @root.join("vendor/xz/order.h").exist?
+    assert_equal "pending", @card.reload.status
+  end
+
+  test "restores the artifacts it overwrote when the commit fails" do
+    binding = @root.join("lib/xz/bindings/order.rb")
+    FileUtils.mkdir_p(binding.dirname)
+    binding.write("# old binding\n")
+    library = @root.join("vendor/xz/order.so")
+    FileUtils.mkdir_p(library.dirname)
+    library.binwrite("old-library")
+
+    runner, = build_runner(fail_on: ->(argv) { argv[1] == "commit" })
+
+    assert_raises(RailsXz::Approval::CommitFailed) { approve(runner: runner) }
+
+    assert_equal "# old binding\n", binding.read
+    assert_equal "old-library", library.binread
+  end
+
+  test "unstages the source and binding when the commit fails" do
+    runner, calls = build_runner(fail_on: ->(argv) { argv[1] == "commit" })
+
+    assert_raises(RailsXz::Approval::CommitFailed) { approve(runner: runner) }
+
+    reset = calls.find { |call| call[:argv][0] == "git" && call[:argv][1] == "reset" }
+    assert_equal(
+      ["git", "reset", "--", "app/xz/order.xz", "lib/xz/bindings/order.rb"],
+      reset[:argv]
+    )
+  end
+
+  test "does not touch the index when it never staged anything" do
+    RailsXz.reset_config!
+    runner, calls = build_runner
+
+    assert_raises(RailsXz::Approval::MissingGitIdentity) { approve(runner: runner) }
+
+    refute calls.any? { |call| call[:argv][0] == "git" && call[:argv][1] == "reset" }
+    refute @root.join("lib/xz/bindings/order.rb").exist?
+  end
+
+  test "removes a partial build artifact when the build fails" do
+    library = @root.join("vendor/xz/order.so")
+    runner = lambda do |argv, env = {}|
+      if argv[1] == "build"
+        FileUtils.mkdir_p(library.dirname)
+        library.binwrite("partial")
+        RailsXz::Approval::Outcome.new(stdout: "", stderr: "boom", success: false)
+      else
+        RailsXz::Approval::Outcome.new(stdout: "", stderr: "", success: true)
+      end
+    end
+
+    assert_raises(RailsXz::Approval::BuildFailed) { approve(runner: runner) }
+
+    refute library.exist?
+    assert_equal "pending", @card.reload.status
+  end
+
   test "surfaces a binding generation failure" do
     runner, = build_runner
     failing_binder = ->(_header) { raise RailsXz::Bridge::GenerationError, "bad header" }

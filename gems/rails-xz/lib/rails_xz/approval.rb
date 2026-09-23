@@ -29,6 +29,11 @@ module RailsXz
 
     Paths = Struct.new(:source, :header, :library, :binding, :stem, keyword_init: true)
 
+    # A file the approval writes, captured before the run: `content` is nil when
+    # the file did not exist, so a failed step can remove what it created and put
+    # back what it overwrote.
+    Artifact = Struct.new(:path, :content, keyword_init: true)
+
     class Error < StandardError; end
     MissingSource = Class.new(Error)
     MissingHeader = Class.new(Error)
@@ -56,6 +61,7 @@ module RailsXz
     def call
       guard!
       paths = resolve_paths
+      baseline = snapshot(paths)
       build!(paths)
       bind!(paths)
       sha = commit!(paths)
@@ -64,6 +70,9 @@ module RailsXz
                  header_path: paths.header.to_s,
                  binding_path: paths.binding.to_s,
                  commit_sha: sha)
+    rescue Error => error
+      rollback(baseline, error)
+      raise
     end
 
     private
@@ -90,6 +99,37 @@ module RailsXz
         binding: @root.join(@config.bindings_root, "#{stem}.rb"),
         stem: stem
       )
+    end
+
+    # Capture every file the approval writes before it writes them, so a failed
+    # build, bind, or commit leaves the working tree exactly as it was found.
+    def snapshot(paths)
+      [paths.binding, paths.header, paths.library].map do |path|
+        Artifact.new(path: path, content: path.file? ? path.binread : nil)
+      end
+    end
+
+    # Best-effort rollback: put each artifact back (or remove it if the approval
+    # created it) and unstage the paths it staged. A rollback failure must not
+    # mask the failure that triggered it, so it only annotates that error.
+    def rollback(baseline, error)
+      Array(baseline).each do |artifact|
+        if artifact.content.nil?
+          FileUtils.rm_f(artifact.path)
+        else
+          FileUtils.mkdir_p(artifact.path.dirname)
+          artifact.path.binwrite(artifact.content)
+        end
+      end
+      unstage!
+    rescue StandardError => rollback_error
+      error.message.replace("#{error.message} (rollback warning: #{rollback_error.message})")
+    end
+
+    def unstage!
+      return if @staged.nil? || @staged.empty?
+
+      @runner.call(["git", "reset", "--", *@staged])
     end
 
     def build!(paths)
@@ -123,11 +163,11 @@ module RailsXz
 
     def commit!(paths)
       env = git_identity_env
-      files = [paths.source, paths.binding]
-              .map { |path| path.relative_path_from(@root).to_s }
+      files = commit_paths(paths)
 
       add = @runner.call(["git", "add", "--", *files], env)
       raise CommitFailed, command_failure("git add", add) unless add.success?
+      @staged = files
 
       commit = @runner.call(["git", "commit", "-m", commit_message, "--", *files], env)
       raise CommitFailed, command_failure("git commit", commit) unless commit.success?
@@ -136,6 +176,10 @@ module RailsXz
       raise CommitFailed, command_failure("git rev-parse", rev) unless rev.success?
 
       rev.stdout.strip
+    end
+
+    def commit_paths(paths)
+      [paths.source, paths.binding].map { |path| path.relative_path_from(@root).to_s }
     end
 
     def git_identity_env
