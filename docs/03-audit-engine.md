@@ -23,6 +23,13 @@ and `test`). In production the mount is absent; audit is a development surface.
 /xz_audit/modules/:id  → one module: badges, contract, diff, actions
 ```
 
+`bin/rails g rails_xz:install` performs the mount: it injects the guarded line
+(`if Rails.env.local?`) into the host's `config/routes.rb` and prints the
+migration step. The Engine's table is installed with the standard engine task
+`bin/rails rails_xz:install:migrations`, followed by `bin/rails db:migrate`.
+The generator only writes the mount; it never touches host models, controllers,
+or authentication.
+
 ## 2. The Audit Card
 
 Each card is backed by a `RailsXz::AuditCard` record and answers the four
