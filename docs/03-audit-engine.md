@@ -100,15 +100,35 @@ with a Turbo Stream (`text/vnd.turbo-stream.html`) that replaces the card's DOM
 id, so the board reflects the new status without a full page reload; a plain
 HTML request falls back to the show page.
 
-P1: one-click approval triggers:
+P1: approval runs `RailsXz::Approval`, an Engine-owned service, as one
+all-or-nothing sequence. The card must be `pending`; the first step that fails
+raises and the card stays `pending`, so a decision is never recorded for a
+module that did not build, bind, and commit.
 
-1. `xz build --shared --out vendor/xz/<stem>.so <module>.xz`,
-2. regeneration of the Ruby binding under `app/xz/bindings/`,
-3. a git commit authored by the approving developer, with a message derived from
-   `@intent`.
+1. **Build.** `xz build --shared --out <build_root>/<stem>.so <source_path>`
+   through `RailsXz::Toolchain.xz_bin`. A non-zero exit raises
+   `RailsXz::Approval::BuildFailed`.
+2. **Bind.** The Ruby binding is regenerated from the module's `.xzint`
+   interface — `source_path` with its extension replaced by `.xzint` — through
+   `RailsXz::Bridge::Generator` and written to `<bindings_root>/<stem>.rb`. The
+   `.xzint` companion is required; its absence raises
+   `RailsXz::Approval::MissingInterface`.
+3. **Commit.** `git add` plus `git commit` stage the source, the `.xzint`, and
+   the regenerated binding, authored and committed by
+   `RailsXz.config.git_identity` (`{ name:, email: }`), with a message derived
+   from the first line of `@intent` (`xz: <intent>`). The compiled object under
+   `build_root` is not committed: `vendor/xz/` is a build drop and gitignored.
+   An unset identity raises `RailsXz::Approval::MissingGitIdentity`; the Engine
+   never falls back to the machine's global git identity.
 
-Approval is blocked when `xz check --strict` reports unproven, untrusted claims,
-unless a developer explicitly overrides with a recorded note.
+Only after all three succeed does `AuditCard#approve!` record the decision and
+the commit SHA. `source_path` is relative to `Rails.root`; `bindings_root`
+defaults to `app/xz/bindings` and `build_root` to `vendor/xz`, both set through
+`RailsXz.configure`.
+
+The `xz check --strict` gate (block unproven, untrusted claims unless a developer
+overrides with a recorded note) is not wired yet; it lands with the override-note
+field.
 
 ## 6. Extraction pipeline
 
@@ -137,6 +157,8 @@ class RailsXz::AuditCard < ApplicationRecord
   # diagnostics      :json   # the clearing run: { attempts:, codes: }
   # diff             :text    # unified diff vs last approved
   # status           :string  # pending | approved | rejected | blocked
+  # source_path      :string  # the candidate .xz, relative to Rails.root
+  # commit_sha       :string  # set by the P1 approval commit
 end
 ```
 
