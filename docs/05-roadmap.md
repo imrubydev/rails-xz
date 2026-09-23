@@ -18,7 +18,7 @@ Goal: prove the call path works end to end and is fast enough.
 - [ ] `[B]` PoC: call an Xz `@export` function from Ruby through `Fiddle`.
 - [ ] `[B]` `.xzint` parser (the subset `xz pkg gen` accepts) and the Ruby
   binding generator fallback.
-- [ ] `[B]` Type marshalling for scalars, `Str`/`Bytes`, `@cstruct`, and handles.
+- [x] `[B]` Type marshalling for scalars, `Str`/`Bytes`, `@cstruct`, and handles.
 - [ ] `[B]` `xz check-json` runner and diagnostic parser as a standalone Ruby
   object (used later by the agent).
 - [ ] `[S]` Benchmark suite comparing native Ruby logic vs. Xz FFI execution.

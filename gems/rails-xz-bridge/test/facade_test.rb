@@ -7,10 +7,13 @@ class FacadeTest < Minitest::Test
   STUB_C = <<~C
     #include <stdint.h>
     #include <stdbool.h>
+    #include <stddef.h>
     int64_t add(int64_t a, int64_t b) { return a + b; }
     double scale(double x, double factor) { return x * factor; }
     bool truthy(int64_t x) { return x != 0; }
     char next_char(char c) { return c + 1; }
+    void* ptr_roundtrip(void* p) { return p; }
+    bool ptr_is_null(void* p) { return p == 0; }
   C
 
   def binding_module
@@ -38,21 +41,30 @@ class FacadeTest < Minitest::Test
     assert_equal :int, mod.declared_functions.dig(:add, :returns)
   end
 
-  def test_str_parameter_fails_loudly_until_its_slice_lands
+  def test_str_parameter_routes_to_the_ffi_backend
     mod = binding_module
     mod.xz_func(:greet, { name: :str }, :unit)
 
+    # Fiddle would reject ':str' before loading; the load attempt proves the
+    # aggregate signature took the ffi path.
     error = assert_raises(RailsXz::Bridge::MarshallError) { mod.greet("x") }
-    assert_match(/marshalling 'str' is not implemented/, error.message)
+    assert_match(/no xz_library declared/, error.message)
   end
 
-  def test_mut_and_handle_parameters_fail_loudly
+  def test_mut_parameters_fail_loudly
     mod = binding_module
     mod.xz_func(:bump, { out: :mut_int }, :int)
+
+    error = assert_raises(RailsXz::Bridge::MarshallError) { mod.bump(1) }
+    assert_match(/mut_int/, error.message)
+  end
+
+  def test_ptr_parameters_reject_a_bare_integer
+    mod = binding_module
     mod.xz_func(:handle, { ptr: :ptr }, :unit)
 
-    assert_raises(RailsXz::Bridge::MarshallError) { mod.bump(1) }
-    assert_raises(RailsXz::Bridge::MarshallError) { mod.handle(1) }
+    error = assert_raises(RailsXz::Bridge::MarshallError) { mod.handle(1) }
+    assert_match(/Handle/, error.message)
   end
 
   def test_wrong_argument_count_is_an_argument_error
@@ -80,6 +92,27 @@ class FacadeTest < Minitest::Test
       assert_equal false, mod.truthy(0)
       assert_equal true, mod.truthy(7)
       assert_equal "b", mod.next_char("a")
+    end
+  end
+
+  def test_ptr_round_trips_as_an_opaque_handle
+    skip "cc is not available" unless system("cc --version > /dev/null 2>&1")
+
+    Dir.mktmpdir("rails-xz-facade") do |dir|
+      so = compile_stub(dir)
+
+      mod = binding_module
+      mod.xz_library(so)
+      mod.xz_func(:ptr_roundtrip, { p: :ptr }, :ptr)
+      mod.xz_func(:ptr_is_null, { p: :ptr }, :bool)
+
+      handle = RailsXz::Bridge::Handle.new(0x1234)
+      result = mod.ptr_roundtrip(handle)
+
+      assert_kind_of RailsXz::Bridge::Handle, result
+      assert_equal 0x1234, result.to_i
+      assert_equal false, mod.ptr_is_null(handle)
+      assert_equal true, mod.ptr_is_null(nil)
     end
   end
 

@@ -11,6 +11,7 @@ becomes stale, fix it in the same PR as the change that made it stale.
 | Bundler | current | Gem dependencies |
 | Rails | 7.1+ | Engine host for the demo app |
 | Xz CLI | current | `xz check-json`, `xz build --shared`, `xz bind` |
+| C compiler | any | `ffi` gem native extension (by-value struct marshalling) |
 | Node.js | 22+ | Only for the opencode plugin under `.opencode/` |
 
 The Xz compiler is not distributed with this repository. Build it from the

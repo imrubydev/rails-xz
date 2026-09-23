@@ -22,6 +22,11 @@ Gem::Specification.new do |spec|
   spec.files = Dir["lib/**/*", "README.md", "LICENSE"]
   spec.require_paths = ["lib"]
 
+  # By-value aggregates (Str/Bytes/@cstruct) need the ffi gem; Fiddle cannot
+  # pass or return a C struct by value. Scalar- and pointer-only calls still use
+  # Fiddle, which ships with Ruby. See docs/01-bridge.md section 3.
+  spec.add_dependency "ffi", "~> 1.15"
+
   spec.add_development_dependency "minitest", "~> 5.0"
   spec.add_development_dependency "rake", "~> 13.0"
 end

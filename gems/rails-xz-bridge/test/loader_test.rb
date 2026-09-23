@@ -16,4 +16,12 @@ class LoaderTest < Minitest::Test
       loader.function("nope", [], Fiddle::TYPE_VOID)
     end
   end
+
+  def test_ffi_function_before_load_raises_symbol_error
+    loader = RailsXz::Bridge::Loader.new("does/not/exist.so")
+
+    assert_raises(RailsXz::Bridge::SymbolError) do
+      loader.ffi_function("nope", :void, [])
+    end
+  end
 end

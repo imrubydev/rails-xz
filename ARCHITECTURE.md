@@ -76,7 +76,7 @@ module Xz::Bindings::Order
 end
 
 # generated: app/xz/bindings/_loader.rb
-# Loads vendor/xz/liborder.so through Fiddle (default) or ffi.
+# Loads vendor/xz/liborder.so through Fiddle, or ffi for by-value structs.
 # Raises RailsXz::Bridge::VersionError if the library's xz version != pinned.
 ```
 
@@ -89,6 +89,9 @@ Rules:
   stem.
 - A signature that is not C-representable is a generator error, not a warning.
   This matches the compiler's own rule for `@export`.
+- A signature that crosses a by-value aggregate (`Str`, `Bytes`, `@cstruct`) is
+  bound through the `ffi` gem, because Fiddle cannot pass or return a C struct by
+  value; scalar- and pointer-only signatures use Fiddle.
 - `Result` cannot cross the C ABI. A C-representable Xz wrapper is required; the
   Ruby binding maps its status/out-parameter back to a raised typed error. See
   [docs/01-bridge.md](docs/01-bridge.md).
