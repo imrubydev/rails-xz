@@ -9,5 +9,6 @@ module RailsXz
     MarshallError = Class.new(Error)
     InterfaceError = Class.new(Error)
     HeaderError = Class.new(Error)
+    SourceError = Class.new(Error)
   end
 end
