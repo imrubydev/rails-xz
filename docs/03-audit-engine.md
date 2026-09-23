@@ -115,16 +115,17 @@ module that did not build, bind, and commit.
 1. **Build.** `xz build --shared --out <build_root>/<stem>.so <source_path>`
    through `RailsXz::Toolchain.xz_bin`. A non-zero exit raises
    `RailsXz::Approval::BuildFailed`.
-2. **Bind.** The Ruby binding is regenerated from the module's `.xzint`
-   interface — `source_path` with its extension replaced by `.xzint` — through
+2. **Bind.** The Ruby binding is regenerated from the compiler header written
+   beside the library in step 1 (`<build_root>/<stem>.h`) through
    `RailsXz::Bridge::Generator` and written to `<bindings_root>/<stem>.rb`. The
-   `.xzint` companion is required; its absence raises
-   `RailsXz::Approval::MissingInterface`.
-3. **Commit.** `git add` plus `git commit` stage the source, the `.xzint`, and
-   the regenerated binding, authored and committed by
-   `RailsXz.config.git_identity` (`{ name:, email: }`), with a message derived
-   from the first line of `@intent` (`xz: <intent>`). The compiled object under
-   `build_root` is not committed: `vendor/xz/` is a build drop and gitignored.
+   header is the compiler's own, complete ABI description, so no hand-authored
+   `.xzint` companion is required; a build that wrote no header raises
+   `RailsXz::Approval::MissingHeader`.
+3. **Commit.** `git add` plus `git commit` stage the source and the regenerated
+   binding, authored and committed by `RailsXz.config.git_identity`
+   (`{ name:, email: }`), with a message derived from the first line of
+   `@intent` (`xz: <intent>`). The compiled object and its header under
+   `build_root` are not committed: `vendor/xz/` is a build drop and gitignored.
    An unset identity raises `RailsXz::Approval::MissingGitIdentity`; the Engine
    never falls back to the machine's global git identity.
 
