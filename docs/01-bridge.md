@@ -226,20 +226,42 @@ parameter is prefixed `mut_`, and a `@cstruct` is its declared name.
   the first call.
 - `xz_cstruct(name, fields)` defines a Ruby `Data` constant with matching field
   order. The C layout stays authoritative.
-- `xz_func(name, params, returns)` defines a positional Ruby method that marshals
-  its arguments to the C ABI, calls the symbol, and returns the Xz value; with a
-  `mut` parameter it returns `[value, out]` (§4.5).
+- `xz_func(name, params, returns, effects: nil, release_gvl: false)` defines a
+  positional Ruby method that marshals its arguments to the C ABI, calls the
+  symbol, and returns the Xz value; with a `mut` parameter it returns
+  `[value, out]` (§4.5). `effects` is the compiler-verified effect profile of an
+  Xz `@export` function and drives the GVL policy (§7); `release_gvl: true`
+  forces the GVL to be released for this call.
 - A type the marshaller cannot represent is a `RailsXz::Bridge::MarshallError`,
   never a silent cast. Every type in the table above is marshalled; a type
   outside it (for example `mut Unit`) fails loudly.
 
 ## 7. GVL and threading
 
-Native Xz code can block. The loader releases the GVL around a call whose
-derived effect profile includes `io` (and for any call the developer marks
-`release_gvl: true`), and keeps the GVL for `@effects none` calls. The effect
-profile comes from the compiler, not from the function name. See
-[ARCHITECTURE.md §4.1](../ARCHITECTURE.md).
+Native Xz code can block, and the effect profile from the compiler — not the
+function name — is the source of truth for whether a call may hold the GVL. The
+compiler proves the declared `@effects` equals the derived, transitive profile
+(error `I0020`), so the bridge reads the `@effects` label from the `@export` `.xz`
+source (`Interface::ExportSource`) and emits it on the generated declaration:
+
+```ruby
+xz_func :payable_total, { subtotal: :float, tax_rate: :float }, :float, effects: [:none]
+xz_func :fetch, { url: :str }, :str, effects: [:io]
+```
+
+The policy at call time:
+
+- **Keep the GVL** only when the profile is exactly `none` — the compiler proved
+  the function pure and short.
+- **Release the GVL** for every other profile (`mut`, `io`, `chan`, `extern`) and
+  for an **unknown** profile: a third-party `.xzint` declares no effects, and an
+  unproven call may block, so it must not stall the process.
+- `release_gvl: true` forces release even for a pure function.
+
+The mechanism is per backend: the Fiddle path passes `need_gvl: !release` to
+`Fiddle::Function`, and the ffi path passes `blocking: release` to
+`FFI::Function`. Both default to the safe release behavior for a call the bridge
+does not know. See [ARCHITECTURE.md §4.1](../ARCHITECTURE.md).
 
 ## 8. Performance budget
 
