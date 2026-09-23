@@ -50,7 +50,7 @@ Goal: a human approves a module in seconds.
 - [ ] `[E]` ViewComponent cards with effect badges and the `@trusted` marker.
 - [ ] `[S]` AST-based effect extraction feeding the card model.
 - [ ] `[E]` Unified diff view against the last approved revision.
-- [ ] `[B]` P1 one-click approval: `xz build --shared` + binding regeneration +
+- [x] `[E]` P1 one-click approval: `xz build --shared` + binding regeneration +
   a commit authored by the approving developer.
 
 Exit criteria: a reviewer approves a representative module using badges and the
