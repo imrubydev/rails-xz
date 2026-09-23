@@ -1,0 +1,4 @@
+/storage/
+/tmp/
+/log/
+*.sqlite3

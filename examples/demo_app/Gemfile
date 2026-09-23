@@ -1,0 +1,12 @@
+source "https://rubygems.org"
+
+gem "rails-xz", path: "../../gems/rails-xz"
+gem "rails-xz-bridge", path: "../../gems/rails-xz-bridge"
+gem "rails-xz-agent", path: "../../gems/rails-xz-agent"
+
+gem "puma", ">= 6.0"
+gem "sqlite3", "~> 2.0"
+
+# json 3.x is incompatible with ActiveSupport 8.1's JSON.parse call; see the
+# root Gemfile.
+gem "json", "~> 2.9"
