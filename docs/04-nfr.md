@@ -26,9 +26,9 @@
 - Installing `rails.xz` requires zero changes to standard Rails conventions. No
   custom boot, no route rewrites, no config surgery; the audit engine is one
   `mount` line.
-- Generated bindings live under a single, predictable directory (default
-  `app/xz/bindings/`) and are committed, so a fresh clone runs without a build
-  step once `vendor/xz/*.so` is present.
+- Generated bindings live under a single, autoloadable directory (default
+  `lib/xz/bindings/`, covered by `config.autoload_lib`) and are committed, so a
+  fresh clone runs without a build step once `vendor/xz/*.so` is present.
 - The default loader uses Ruby's stdlib `Fiddle`, so installation adds no native
   build dependency.
 - A developer with no C/Rust knowledge can install the gems and run a first

@@ -30,7 +30,7 @@ liborder.xzint ──► xz pkg gen --lang python   (existing)
               └──► xz pkg gen --lang ruby      (planned, in the Xz CLI)
                         │
                         ▼
-                  app/xz/bindings/order.rb
+                  lib/xz/bindings/order.rb
 ```
 
 `xz pkg gen --lang ruby` mirrors the existing `--lang python` target:
@@ -182,7 +182,7 @@ function. Declarations are emitted in dependency order: a record precedes any
 record that nests it.
 
 ```ruby
-# app/xz/bindings/libcurl.rb (generated — do not edit)
+# lib/xz/bindings/libcurl.rb (generated — do not edit)
 require "rails-xz-bridge"
 
 module Xz::Bindings::Libcurl
