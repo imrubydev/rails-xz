@@ -13,8 +13,13 @@ module RailsXz
 
     scope :awaiting, -> { where(status: "pending") }
 
-    def approve!(by:)
-      update!(status: "approved", decided_by: by, decided_at: Time.current)
+    STATUSES.each do |name|
+      define_method("#{name}?") { status == name }
+    end
+
+    def approve!(by:, commit_sha: nil)
+      update!(status: "approved", decided_by: by, decided_at: Time.current,
+              commit_sha: commit_sha)
     end
 
     def reject!(by:)
