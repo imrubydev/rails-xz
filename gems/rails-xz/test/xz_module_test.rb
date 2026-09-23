@@ -32,7 +32,7 @@ class XzModuleTest < Minitest::Test
 
   def setup
     loader = Object.new
-    loader.define_singleton_method(:function) do |_name, _args, _returns|
+    loader.define_singleton_method(:function) do |_name, _args, _returns, need_gvl:|
       ->(subtotal, tax_rate) { subtotal * (1.0 + tax_rate) }
     end
     Xz::Bindings::Order.xz_loader = loader
