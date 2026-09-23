@@ -32,6 +32,16 @@ module RailsXz
         unit: :void
       }.freeze
 
+      MUT_PREFIX = "mut_"
+
+      # A typed in/out cell: the native memory the callee writes through, plus
+      # the reader that turns it back into a Ruby value after the call.
+      Cell = Struct.new(:pointer, :reader) do
+        def read
+          reader.call
+        end
+      end
+
       def initialize(binding, loader)
         @binding = binding
         @loader = loader
@@ -48,21 +58,40 @@ module RailsXz
         )
 
         keepalive = []
+        cells = {}
         encoded = params.each_with_index.map do |(param, symbol), index|
-          encode(symbol, args[index], keepalive,
-                 context: "#{name} parameter '#{param}'")
+          context = "#{name} parameter '#{param}'"
+          if mut?(symbol)
+            cells[param] = build_cell(symbol, args[index], keepalive, context)
+            cells[param].pointer
+          else
+            encode(symbol, args[index], keepalive, context: context)
+          end
         end
 
-        decode(returns, function.call(*encoded), context: "#{name} return")
+        value = decode(returns, function.call(*encoded), context: "#{name} return")
+        return value if cells.empty?
+
+        [value, cells.transform_values(&:read)]
       end
 
       private
+
+      def mut?(symbol)
+        symbol.to_s.start_with?(MUT_PREFIX)
+      end
+
+      def base_symbol(symbol)
+        symbol.to_s.delete_prefix(MUT_PREFIX).to_sym
+      end
 
       def return_type(symbol, context:)
         symbol == :unit ? :void : argument_type(symbol, context: context)
       end
 
       def argument_type(symbol, context:)
+        return :pointer if mut?(symbol)
+
         primitive = PRIMITIVE_TYPES[symbol]
         return primitive if primitive
         return XzStr.by_value if symbol == :str
@@ -124,24 +153,33 @@ module RailsXz
       end
 
       def encode_str(value, keepalive, context)
+        fill_str(XzStr.new, value, keepalive, context)
+      end
+
+      def encode_bytes(value, keepalive, context)
+        fill_bytes(XzBytes.new, value, keepalive, context)
+      end
+
+      # Builds the `Str` pair over `struct`, which may be a fresh struct or a
+      # view over a `mut` cell's memory. The byte buffer is kept alive past the
+      # call by `keepalive`.
+      def fill_str(struct, value, keepalive, context)
         unless value.is_a?(String)
           raise MarshallError, "#{context}: Str expects a String, got #{value.class}"
         end
 
         pointer = keepalive.push(FFI::MemoryPointer.from_string(value.encode(Encoding::UTF_8))).last
-        struct = XzStr.new
         struct[:ptr] = pointer
         struct[:len] = pointer.size - 1
         struct
       end
 
-      def encode_bytes(value, keepalive, context)
+      def fill_bytes(struct, value, keepalive, context)
         unless value.is_a?(String)
           raise MarshallError, "#{context}: Bytes expects a String, got #{value.class}"
         end
 
         pointer = keepalive.push(FFI::MemoryPointer.from_string(value.b)).last
-        struct = XzBytes.new
         struct[:ptr] = pointer
         struct[:len] = pointer.size - 1
         struct
@@ -166,6 +204,72 @@ module RailsXz
           else
             struct[field] = encode(symbol, value.public_send(field), keepalive,
                                    context: field_context)
+          end
+        end
+      end
+
+      # -- mut cells (in/out) --------------------------------------------------
+
+      def build_cell(symbol, value, keepalive, context)
+        base = base_symbol(symbol)
+        pointer = allocate_cell(base, context)
+        keepalive << pointer
+        write_cell(base, pointer, value, keepalive, context)
+        Cell.new(pointer, -> { read_cell(base, pointer, context) })
+      end
+
+      def allocate_cell(base, context)
+        if cstruct?(base)
+          FFI::MemoryPointer.new(cstruct_class(base))
+        elsif base == :str
+          FFI::MemoryPointer.new(XzStr)
+        elsif base == :bytes
+          FFI::MemoryPointer.new(XzBytes)
+        else
+          type = PRIMITIVE_TYPES[base]
+          unless type && type != :void
+            raise MarshallError, Values.unsupported(context, "mut_#{base}")
+          end
+
+          FFI::MemoryPointer.new(type)
+        end
+      end
+
+      def write_cell(base, pointer, value, keepalive, context)
+        case base
+        when :bool then pointer.write_char(value ? 1 : 0)
+        when :int then pointer.write_int64(Integer(value))
+        when :usize then pointer.write_uint64(Integer(value))
+        when :float then pointer.write_double(Float(value))
+        when :char then pointer.write_char(Values.char_code(value, context))
+        when :ptr then pointer.write_pointer(ffi_pointer(value, context) || FFI::Pointer::NULL)
+        when :str then fill_str(XzStr.new(pointer), value, keepalive, context)
+        when :bytes then fill_bytes(XzBytes.new(pointer), value, keepalive, context)
+        else
+          if cstruct?(base)
+            fill(cstruct_class(base).new(pointer), @binding.declared_cstructs.fetch(base),
+                 value, keepalive, context)
+          else
+            raise MarshallError, Values.unsupported(context, "mut_#{base}")
+          end
+        end
+      end
+
+      def read_cell(base, pointer, context)
+        case base
+        when :bool then pointer.read_char != 0
+        when :int then pointer.read_int64
+        when :usize then pointer.read_uint64
+        when :float then pointer.read_double
+        when :char then Values.char_string(pointer.read_char)
+        when :ptr then Handle.new(pointer.read_pointer.to_i)
+        when :str then decode_str(XzStr.new(pointer))
+        when :bytes then decode_bytes(XzBytes.new(pointer))
+        else
+          if cstruct?(base)
+            decode_cstruct(base, cstruct_class(base).new(pointer), context)
+          else
+            raise MarshallError, Values.unsupported(context, "mut_#{base}")
           end
         end
       end

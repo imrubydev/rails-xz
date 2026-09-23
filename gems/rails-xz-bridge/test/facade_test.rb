@@ -51,12 +51,13 @@ class FacadeTest < Minitest::Test
     assert_match(/no xz_library declared/, error.message)
   end
 
-  def test_mut_parameters_fail_loudly
+  def test_mut_parameter_routes_to_the_ffi_backend
     mod = binding_module
     mod.xz_func(:bump, { out: :mut_int }, :int)
 
+    # A mut cell needs ffi's typed memory; the load attempt proves the routing.
     error = assert_raises(RailsXz::Bridge::MarshallError) { mod.bump(1) }
-    assert_match(/mut_int/, error.message)
+    assert_match(/no xz_library declared/, error.message)
   end
 
   def test_ptr_parameters_reject_a_bare_integer

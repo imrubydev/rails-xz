@@ -50,6 +50,22 @@ class AggregateLibraryTest < Minitest::Test
         Point(x, y)
     }
 
+    /// Multiplies value in place and returns the result.
+    /// @intent  Multiplies value in place and returns the result.
+    /// @effects mut
+    @export func scale(mut value: Float, factor: Float) -> Float {
+        value = value * factor
+        value
+    }
+
+    /// Increments the integer in place and returns the new value.
+    /// @intent  Increments the integer in place.
+    /// @effects mut
+    @export func bump(mut n: Int) -> Int {
+        n = n + 1
+        n
+    }
+
     func main() {
         print("aggregate\\n")
     }
@@ -74,6 +90,23 @@ class AggregateLibraryTest < Minitest::Test
     end
   end
 
+  def test_builds_and_calls_mut_cells
+    Dir.mktmpdir("rails-xz-aggregate") do |dir|
+      lib = File.join(dir, "libaggregate.so")
+      build!(dir, lib)
+
+      mod = binding_module(lib)
+
+      value, out = mod.scale(2.0, 3.0)
+      assert_in_delta 6.0, value, 1e-9
+      assert_in_delta 6.0, out[:value], 1e-9
+
+      value, out = mod.bump(41)
+      assert_equal 42, value
+      assert_equal({ n: 42 }, out)
+    end
+  end
+
   private
 
   def binding_module(lib)
@@ -86,6 +119,8 @@ class AggregateLibraryTest < Minitest::Test
       xz_func :bytes_len, { b: :bytes }, :int
       xz_func :point_sum, { p: :Point }, :int
       xz_func :make_point, { x: :int, y: :int }, :Point
+      xz_func :scale, { value: :mut_float, factor: :float }, :float
+      xz_func :bump, { n: :mut_int }, :int
     end
   end
 

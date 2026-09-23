@@ -51,6 +51,14 @@ class FfiMarshallingTest < Minitest::Test
     bool ptr_is_null(void* p) { return p == 0; }
     int64_t ptr_tag(XzStr s, void* p) { return (int64_t)s.len + (p == 0 ? 0 : 1000); }
     void* ptr_echo(XzStr s, void* p) { (void)s; return p; }
+
+    int64_t bump(int64_t* n) { *n += 1; return *n; }
+    double scale(double* v, double factor) { *v *= factor; return *v; }
+    bool toggle(bool* b) { *b = !*b; return *b; }
+    char next_char_ptr(char* c) { *c += 1; return *c; }
+    void bump_point(Point* p) { p->x += 1; p->y += 1; }
+    int64_t str_len_out(XzStr* s) { return (int64_t)s->len; }
+    int64_t ptr_write(void** p) { *p = (void*)0x1234; return 0; }
   C
 
   def test_str_parameter_and_return
@@ -159,6 +167,70 @@ class FfiMarshallingTest < Minitest::Test
       assert_equal 1002, mod.ptr_tag("hi", handle)
       assert_equal handle, mod.ptr_echo("hi", handle)
       assert_equal 0, mod.ptr_echo("hi", nil).to_i
+    end
+  end
+
+  def test_mut_scalar_returns_the_value_and_an_out_hash
+    with_library do |mod|
+      mod.xz_func(:bump, { n: :mut_int }, :int)
+      mod.xz_func(:scale, { v: :mut_float, factor: :float }, :float)
+      mod.xz_func(:toggle, { b: :mut_bool }, :bool)
+      mod.xz_func(:next_char_ptr, { c: :mut_char }, :char)
+
+      value, out = mod.bump(41)
+      assert_equal 42, value
+      assert_equal({ n: 42 }, out)
+
+      value, out = mod.scale(2.0, 3.0)
+      assert_in_delta 6.0, value, 1e-9
+      assert_in_delta 6.0, out[:v], 1e-9
+
+      value, out = mod.toggle(false)
+      assert_equal true, value
+      assert_equal({ b: true }, out)
+
+      value, out = mod.next_char_ptr("a")
+      assert_equal "b", value
+      assert_equal({ c: "b" }, out)
+    end
+  end
+
+  def test_mut_cstruct_cell
+    with_library do |mod|
+      mod.xz_cstruct(:Point, { x: :int, y: :int })
+      mod.xz_func(:bump_point, { p: :mut_Point }, :unit)
+
+      value, out = mod.bump_point(mod::Point.new(x: 1, y: 2))
+      assert_nil value
+      assert_equal mod::Point.new(x: 2, y: 3), out[:p]
+    end
+  end
+
+  def test_mut_str_cell
+    with_library do |mod|
+      mod.xz_func(:str_len_out, { s: :mut_str }, :int)
+
+      value, out = mod.str_len_out("hello")
+      assert_equal 5, value
+      assert_equal({ s: "hello" }, out)
+    end
+  end
+
+  def test_mut_ptr_cell
+    with_library do |mod|
+      mod.xz_func(:ptr_write, { p: :mut_ptr }, :int)
+
+      value, out = mod.ptr_write(RailsXz::Bridge::Handle.new(0x99))
+      assert_equal 0, value
+      assert_equal 0x1234, out[:p].to_i
+    end
+  end
+
+  def test_a_signature_without_mut_returns_a_single_value
+    with_library do |mod|
+      mod.xz_func(:str_len, { s: :str }, :int)
+
+      assert_equal 5, mod.str_len("hello")
     end
   end
 
