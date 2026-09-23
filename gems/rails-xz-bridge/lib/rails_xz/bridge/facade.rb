@@ -7,18 +7,21 @@ module RailsXz
     # Runtime for a generated binding module. A generated module `extend`s this
     # module and declares its shared object, `@cstruct`s, and functions; the
     # declarations become singleton methods that marshal Ruby values across the
-    # C ABI through the Loader. See docs/01-bridge.md section 6.2.
+    # C ABI. See docs/01-bridge.md section 6.2.
     #
-    # This slice marshals scalars (`Bool`, `Int`, `usize`, `Float`, `Char`).
-    # `Str`, `Bytes`, `Ptr` handles, `@cstruct` by value, and `mut` cells fail
-    # with MarshallError rather than degrading silently; their slices follow.
+    # A signature that crosses a by-value aggregate (`Str`, `Bytes`, or a
+    # `@cstruct`) is bound through FfiMarshaller, because Fiddle cannot pass or
+    # return a C struct by value. Scalar- and pointer-only signatures use
+    # Fiddle, so the common path keeps no native dependency beyond the gem
+    # itself. `mut` cells still fail with MarshallError until their slice lands.
     module Facade
       FIDDLE_TYPES = {
         bool: Fiddle::TYPE_CHAR,
         int: Fiddle::TYPE_LONG_LONG,
         usize: Fiddle::TYPE_ULONG_LONG,
         float: Fiddle::TYPE_DOUBLE,
-        char: Fiddle::TYPE_CHAR
+        char: Fiddle::TYPE_CHAR,
+        ptr: Fiddle::TYPE_VOIDP
       }.freeze
 
       def self.extended(base)
@@ -26,11 +29,13 @@ module RailsXz
         base.instance_variable_set(:@xz_cstructs, {})
         base.instance_variable_set(:@xz_functions, {})
         base.instance_variable_set(:@xz_loader, nil)
+        base.instance_variable_set(:@xz_ffi_marshaller, nil)
       end
 
       # Records the shared object the binding loads. Resolution is lazy.
       def xz_library(path)
         @xz_library = path
+        @xz_ffi_marshaller = nil
       end
 
       # Defines a Ruby `Data` constant with the record's field order. The C
@@ -38,6 +43,7 @@ module RailsXz
       def xz_cstruct(name, fields)
         const_set(name, Data.define(*fields.keys))
         @xz_cstructs[name] = fields.freeze
+        @xz_ffi_marshaller = nil
         const_get(name)
       end
 
@@ -51,8 +57,11 @@ module RailsXz
       end
 
       # Injects a loader (a test double, or a preloaded Loader). Passing nil
-      # restores lazy loading.
-      attr_writer :xz_loader
+      # restores lazy loading. Resets the ffi marshaller so it rebinds.
+      def xz_loader=(loader)
+        @xz_ffi_marshaller = nil
+        @xz_loader = loader
+      end
 
       def declared_functions
         @xz_functions.dup
@@ -89,6 +98,28 @@ module RailsXz
                 "#{name} expects #{params.length} argument(s), got #{args.length}"
         end
 
+        if _xz_ffi?(params, returns)
+          _xz_ffi_marshaller.call(name, params, returns, args)
+        else
+          _xz_call_fiddle(name, params, returns, args)
+        end
+      end
+
+      # A by-value aggregate has no Fiddle representation, so its signature
+      # takes the ffi path (docs/01-bridge.md section 3).
+      def _xz_ffi?(params, returns)
+        params.any? { |_param, symbol| _xz_aggregate?(symbol) } || _xz_aggregate?(returns)
+      end
+
+      def _xz_aggregate?(symbol)
+        symbol == :str || symbol == :bytes || @xz_cstructs.key?(symbol)
+      end
+
+      def _xz_ffi_marshaller
+        @xz_ffi_marshaller ||= FfiMarshaller.new(self, xz_loader)
+      end
+
+      def _xz_call_fiddle(name, params, returns, args)
         fiddle_args = params.map do |param_name, symbol|
           _xz_fiddle_type(symbol, context: "#{name} parameter '#{param_name}'")
         end
@@ -106,7 +137,7 @@ module RailsXz
         type = FIDDLE_TYPES[symbol]
         return type if type
 
-        raise MarshallError, _unsupported(context, symbol)
+        raise MarshallError, Values.unsupported(context, symbol)
       end
 
       def _xz_fiddle_return_type(returns, name)
@@ -120,8 +151,9 @@ module RailsXz
         when :bool then value ? 1 : 0
         when :int, :usize then Integer(value)
         when :float then Float(value)
-        when :char then _char_code(value, context)
-        else raise MarshallError, _unsupported(context, symbol)
+        when :char then Values.char_code(value, context)
+        when :ptr then Values.handle_address(value, context)
+        else raise MarshallError, Values.unsupported(context, symbol)
         end
       end
 
@@ -131,27 +163,10 @@ module RailsXz
         when :bool then raw != 0
         when :int, :usize then Integer(raw)
         when :float then Float(raw)
-        when :char then _char_string(raw)
-        else raise MarshallError, _unsupported(context, symbol)
+        when :char then Values.char_string(raw)
+        when :ptr then Handle.new(raw.nil? ? 0 : raw)
+        else raise MarshallError, Values.unsupported(context, symbol)
         end
-      end
-
-      def _char_code(value, context)
-        value = value.to_s
-        unless value.length == 1
-          raise MarshallError, "#{context}: Char expects a one-character String, got #{value.inspect}"
-        end
-
-        value.ord
-      end
-
-      def _char_string(raw)
-        raw.is_a?(Integer) ? raw.chr : raw.to_s
-      end
-
-      def _unsupported(context, symbol)
-        "#{context}: marshalling '#{symbol}' is not implemented yet " \
-          "(docs/01-bridge.md section 6.2)"
       end
     end
   end
