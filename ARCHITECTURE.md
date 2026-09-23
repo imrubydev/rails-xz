@@ -168,8 +168,10 @@ bridge produces:
 | `List` / `Map` / `Set` / `enum` / plain `record` / `Chan` | not C-representable | rejected at generation time |
 
 `Str`/`Bytes` cross as two-field structs (pointer + length, no NUL guarantee).
-`mut` parameters map to `T*` (C in/out); the Ruby binding allocates the cell,
-passes its address, and reads the updated value back.
+`mut` parameters map to `T*` (C in/out); the Ruby binding takes the initial value,
+allocates the cell, passes its address, and reads the updated value back. A
+signature with a `mut` parameter returns `[value, out]` so the updated cells reach
+the caller alongside the return value ([docs/01-bridge.md §4.5](docs/01-bridge.md)).
 
 ### 4.1 The GVL and thread safety
 

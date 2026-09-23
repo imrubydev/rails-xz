@@ -50,13 +50,15 @@ TypeScript.
 | Backend | Mechanism | Used for |
 |---|---|---|
 | `Fiddle` | Ruby stdlib `dlopen` + `Function` | Scalar- and pointer-only signatures; no native dependency. |
-| `ffi` | `ffi` gem | Any signature that crosses a by-value aggregate. |
+| `ffi` | `ffi` gem | Any signature that crosses a by-value aggregate or carries a `mut` parameter. |
 
 Fiddle cannot pass or return a C struct by value, and the Xz ABI crosses `Str`,
-`Bytes`, and `@cstruct` as structs (§1). A signature is therefore bound through
-the `ffi` gem the moment it contains one of those types; everything else stays on
-Fiddle. The choice is per signature and is not a fallback: a by-value aggregate
-never degrades to a pointer or a lossy cast.
+`Bytes`, and `@cstruct` as structs (§1). A `mut` parameter also needs a typed
+cell allocated in native memory. A signature is therefore bound through the
+`ffi` gem the moment it contains one of those, so the `mut` cell can be allocated
+and read back with ffi's typed memory; everything else stays on Fiddle. The
+choice is per signature and is not a fallback: a by-value aggregate never
+degrades to a pointer or a lossy cast.
 
 `ffi` is a runtime dependency of `rails-xz-bridge`. Fiddle remains the backend
 for the common scalar/pointer case so a binding that needs no aggregate carries
@@ -114,6 +116,32 @@ for interop.
 track ownership, so a handle may currently be passed again. The full rule — a
 handle is never copied and is dead after `transfer` — lands with the transfer
 slice.
+
+### 4.5 `mut` cells
+
+A `mut` parameter is the C in/out convention: it crosses as `T*`. The Ruby
+caller passes the **initial value** positionally, and the binding:
+
+1. allocates a typed cell for `T` in native memory,
+2. writes the initial value into it,
+3. passes the cell's address,
+4. reads the callee's copy-out back into a Ruby value.
+
+The updated values have to reach the caller without colliding with the function's
+return. When a signature has at least one `mut` parameter, the generated method
+returns a two-element array:
+
+```ruby
+status, out = parse_amount("1.50", 0.0)
+status      # the Xz return value (e.g. a status code)
+out         # => { out: 1.50 }  keyed by parameter name
+```
+
+When there is no `mut` parameter the method returns the Xz value directly. The
+shape is decided by the signature alone, so the caller cannot forget to read an
+out value. The mapping is per type: a scalar cell holds a scalar, `mut Str` /
+`mut Bytes` / `mut @cstruct` / `mut Ptr` hold their by-value counterpart, and a
+cell type outside the type table is a hard error.
 
 ## 5. The `Result` problem
 
@@ -190,7 +218,7 @@ parameter is prefixed `mut_`, and a `@cstruct` is its declared name.
 | `Ptr` | `:ptr` | opaque handle |
 | `Unit` (return only) | `:unit` | `nil` |
 | `@cstruct Color` | `:Color` | `Data` instance |
-| `mut out: Float` | `:mut_float` | in/out cell |
+| `mut out: Float` | `:mut_float` | in/out cell (initial value in; updated value in the out hash, §4.5) |
 
 ### 6.2 `Facade` contract
 
@@ -199,10 +227,11 @@ parameter is prefixed `mut_`, and a `@cstruct` is its declared name.
 - `xz_cstruct(name, fields)` defines a Ruby `Data` constant with matching field
   order. The C layout stays authoritative.
 - `xz_func(name, params, returns)` defines a positional Ruby method that marshals
-  its arguments to the C ABI, calls the symbol, and returns the Xz value.
+  its arguments to the C ABI, calls the symbol, and returns the Xz value; with a
+  `mut` parameter it returns `[value, out]` (§4.5).
 - A type the marshaller cannot represent is a `RailsXz::Bridge::MarshallError`,
-  never a silent cast. The current slice marshals scalars, `Str`, `Bytes`,
-  `@cstruct`, and `Ptr` handles; `mut` cells fail loudly until their slice lands.
+  never a silent cast. Every type in the table above is marshalled; a type
+  outside it (for example `mut Unit`) fails loudly.
 
 ## 7. GVL and threading
 
