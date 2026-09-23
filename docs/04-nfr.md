@@ -16,8 +16,9 @@
 
 - Given the same Xz version and source, `xz build --shared` produces identical
   binary behavior.
-- `rails.xz` pins the Xz compiler version in a lockfile and refuses to bind a
-  shared library built by a different version (`VersionError`).
+- `rails.xz` pins the ABI by the digest of the compiler header beside the
+  shared library and refuses to bind a library whose header differs
+  (`VersionError`).
 - The agent records the prompt hash and model version for each run so a result
   is reproducible or explainable.
 

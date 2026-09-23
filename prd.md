@@ -221,8 +221,9 @@ Full breakdown: [docs/05-roadmap.md](docs/05-roadmap.md).
    mount the Engine.
 4. **No silent degradation.** A value that cannot cross the C ABI safely is a
    hard error, never a lossy cast.
-5. **Version pinning.** The bridge records the Xz compiler version it was built
-   against and refuses to bind an incompatible shared library.
+5. **ABI pinning.** The bridge records the digest of the compiler header its
+   binding was generated from and refuses to bind a shared library whose header
+   no longer matches.
 6. **Observability.** Every FFI call can emit a structured record (function,
    declared effects, latency, outcome) for production auditing.
 
