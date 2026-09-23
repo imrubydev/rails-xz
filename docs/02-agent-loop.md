@@ -62,6 +62,16 @@ intent specification and a target path, and enqueues the result (source,
 diagnostic history, status) for the audit engine. It never touches a controller
 or a request-scoped object.
 
+The loop checks each candidate in a temporary `.xz` file and never writes
+`target` itself; the Result carries the final source and the caller decides
+where it lands. Writing the module into the app is a human action.
+
+`Loop#run` returns a `Result(status:, source:, attempts:, diagnostics:)` where
+`status` is `:passed` (no error diagnostics) or `:escalated` (the budget ran out
+with errors still present). The model is any object responding to
+`#generate(prompt) -> String`; the checker is any object responding to
+`#call(path) -> { diagnostics:, exit_status:, stderr: }`.
+
 ## 3. Retry policy
 
 - `N` defaults to **3**. Configurable per call site.
