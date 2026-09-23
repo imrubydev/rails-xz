@@ -3,18 +3,21 @@
 module RailsXz
   module Bridge
     # Build-time generator: emits a Ruby binding module from an `.xzint`
-    # interface file or the C header `xz build --shared` writes. The output
-    # mirrors `xz pkg gen --lang python`: a module named after the source stem,
-    # a `Data` class per `@cstruct`, and a typed declaration per function, all
-    # through RailsXz::Bridge::Facade (docs/01-bridge.md sections 2 and 6).
+    # interface file, the C header `xz build --shared` writes, or an `.xz`
+    # module's `@export` surface. The output mirrors `xz pkg gen --lang python`:
+    # a module named after the source stem, a `Data` class per `@cstruct`, and a
+    # typed declaration per function, all through RailsXz::Bridge::Facade
+    # (docs/01-bridge.md sections 2 and 6).
     #
     #   Generator.new("libcurl.xzint", lib: "libcurl.so").generate
     #   Generator.new("libcurl.h", lib: "libcurl.so").generate
+    #   Generator.new("order.xz", lib: "liborder.so").generate
     #   # => String of Ruby source for Xz::Bindings::Libcurl
     #
-    # A `.h` path is read as a generated C header; anything else is read as an
-    # `.xzint` interface. A signature that is not C-representable is a hard
-    # error, never a lossy cast (ARCHITECTURE.md section 3.1).
+    # A `.h` path is read as a generated C header, an `.xz` path as an Xz module,
+    # and anything else as an `.xzint` interface. A signature that is not
+    # C-representable is a hard error, never a lossy cast (ARCHITECTURE.md
+    # section 3.1).
     class Generator
       PLATFORM_SUFFIX =
         case RUBY_PLATFORM
@@ -36,6 +39,7 @@ module RailsXz
 
       def generate
         parsed = parse
+        read_source_effects if xz_source?
         validate!(parsed)
         emit(parsed)
       end
@@ -44,12 +48,25 @@ module RailsXz
 
       def parse
         return Header.parse(source, path: display_path) if header_source?
+        return Source.parse(source, path: display_path) if xz_source?
 
         Interface.parse(source, path: display_path)
       end
 
       def header_source?
         File.extname(display_path.to_s) == ".h"
+      end
+
+      def xz_source?
+        File.extname(display_path.to_s) == ".xz"
+      end
+
+      # An `.xz` module carries the compiler-verified `@effects` of each
+      # `@export` function in its intent comment, so the binding reads the GVL
+      # profile from the same source that supplies the signatures
+      # (docs/01-bridge.md section 7). A profile passed to `new` still wins.
+      def read_source_effects
+        @effects = Interface::ExportSource.effects(source).merge(@effects)
       end
 
       # The ABI digest is only defined for a compiler header: an `.xzint`
