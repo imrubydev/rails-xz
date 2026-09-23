@@ -69,6 +69,10 @@ class CheckJsonTest < Minitest::Test
     path = File.join(dir, "xz")
     File.write(path, <<~SH)
       #!/bin/sh
+      if [ "$1" = "--version" ]; then
+        echo 'usage: xz <lex|parse|check|check-json|build|run|build-native|bind|fmt|lsp>'
+        exit 0
+      fi
       printf '%s\\n' "$@" > #{log}
       echo '[]'
     SH
