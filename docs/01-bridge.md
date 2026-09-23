@@ -45,6 +45,29 @@ the same `.xzint` grammar and emits the same shape, so the CLI and the gem stay
 interchangeable. This is the same fallback strategy `next.xz` uses for
 TypeScript.
 
+### 2.1 Generating from the compiler's header
+
+When only the compiled artifact is available — a third-party shared library, or
+an `@export` `.xz` built without an `.xzint` — the generator reads the C header
+`xz build --shared` writes beside the library. The header is the compiler's own
+description of the ABI (§1), so the generator maps its C types back to the same
+type table (§6.1) instead of guessing a layout:
+
+| C (header) | Xz |
+|---|---|
+| `bool` / `int64_t` / `uint64_t` / `double` / `char` | `Bool` / `Int` / `usize` / `Float` / `Char` |
+| `XzStr` / `XzBytes` | `Str` / `Bytes` |
+| `void*` | `Ptr` |
+| `T*` (`void**` for `Ptr`) | `mut T` |
+| `void` (return only) | no return |
+| a `typedef struct` name | `@cstruct` |
+
+The parser is chosen from the file name: a `.h` path is read as a generated
+header, any other path as an `.xzint` interface. The `XzStr`/`XzBytes` carrier
+typedefs, the include block, and the include guard are skipped. A C type outside
+the table is a `HeaderError`, never a silent cast — the same no-degradation rule
+as the `.xzint` path.
+
 ## 3. Loading the library
 
 | Backend | Mechanism | Used for |

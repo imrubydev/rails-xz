@@ -3,16 +3,18 @@
 module RailsXz
   module Bridge
     # Build-time generator: emits a Ruby binding module from an `.xzint`
-    # interface file. The output mirrors `xz pkg gen --lang python`: a module
-    # named after the interface stem, a `Data` class per `@cstruct`, and a typed
-    # declaration per `extern` function, all through RailsXz::Bridge::Facade
-    # (docs/01-bridge.md sections 2 and 6).
+    # interface file or the C header `xz build --shared` writes. The output
+    # mirrors `xz pkg gen --lang python`: a module named after the source stem,
+    # a `Data` class per `@cstruct`, and a typed declaration per function, all
+    # through RailsXz::Bridge::Facade (docs/01-bridge.md sections 2 and 6).
     #
     #   Generator.new("libcurl.xzint", lib: "libcurl.so").generate
+    #   Generator.new("libcurl.h", lib: "libcurl.so").generate
     #   # => String of Ruby source for Xz::Bindings::Libcurl
     #
-    # A signature that is not C-representable is a hard error, never a lossy
-    # cast (ARCHITECTURE.md section 3.1).
+    # A `.h` path is read as a generated C header; anything else is read as an
+    # `.xzint` interface. A signature that is not C-representable is a hard
+    # error, never a lossy cast (ARCHITECTURE.md section 3.1).
     class Generator
       PLATFORM_SUFFIX =
         case RUBY_PLATFORM
@@ -33,12 +35,22 @@ module RailsXz
       end
 
       def generate
-        parsed = Interface.parse(source, path: display_path)
+        parsed = parse
         validate!(parsed)
         emit(parsed)
       end
 
       private
+
+      def parse
+        return Header.parse(source, path: display_path) if header_source?
+
+        Interface.parse(source, path: display_path)
+      end
+
+      def header_source?
+        File.extname(display_path.to_s) == ".h"
+      end
 
       def source
         @source || File.read(@interface_path)

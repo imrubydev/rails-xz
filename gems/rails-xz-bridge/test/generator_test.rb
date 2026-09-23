@@ -159,6 +159,27 @@ class GeneratorTest < Minitest::Test
     assert_includes output, "xz_library \"weird\\\"lib.so\""
   end
 
+  HEADER = <<~HEADER
+    typedef struct XzStr { const char* ptr; size_t len; } XzStr;
+    typedef struct Point {
+        int64_t x;
+        int64_t y;
+    } Point;
+
+    Point echo_point(Point p, XzStr label, void* handle);
+    int64_t scale(double value, double* out);
+  HEADER
+
+  def test_reads_a_generated_header_path
+    output = RailsXz::Bridge::Generator
+             .new("librich.h", source: HEADER, module_name: "Xz::Bindings::Rich")
+             .generate
+
+    assert_includes output, "xz_cstruct :Point, { x: :int, y: :int }"
+    assert_includes output, "xz_func :echo_point, { p: :Point, label: :str, handle: :ptr }, :Point"
+    assert_includes output, "xz_func :scale, { value: :float, out: :mut_float }, :int"
+  end
+
   def test_generated_source_evaluates_to_a_facade_module
     output = generate("extern func add(a: Int, b: Int) -> Int\n", module_name: "GeneratedBinding")
 
