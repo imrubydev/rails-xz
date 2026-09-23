@@ -21,11 +21,15 @@ module RailsXz
         else ".so"
         end
 
-      def initialize(interface_path, lib: nil, module_name: nil, source: nil)
+      # The effect labels the Xz compiler accepts (docs/01-bridge.md section 7).
+      EFFECT_LABELS = %i[none mut io chan extern].freeze
+
+      def initialize(interface_path, lib: nil, module_name: nil, source: nil, effects: nil)
         @interface_path = interface_path
         @lib = lib
         @module_name = module_name
         @source = source
+        @effects = effects || {}
       end
 
       def generate
@@ -83,6 +87,28 @@ module RailsXz
 
           check_type!(extern.return_type, names, as_return: true,
                       context: "extern '#{extern.name}' return")
+        end
+        validate_effects!
+      end
+
+      def validate_effects!
+        @effects.each do |name, labels|
+          next if labels.nil?
+
+          unless labels.is_a?(Array)
+            raise GenerationError,
+                  "effects for '#{name}' must be an array of labels, got #{labels.class}"
+          end
+          if labels.include?(:none) && labels.length > 1
+            raise GenerationError,
+                  "effects for '#{name}': 'none' cannot be combined with other effects"
+          end
+          unknown = labels - EFFECT_LABELS
+          unless unknown.empty?
+            raise GenerationError,
+                  "effects for '#{name}': unknown effect(s) #{unknown.inspect} " \
+                  "(allowed: #{EFFECT_LABELS.join(', ')})"
+          end
         end
       end
 
@@ -163,7 +189,7 @@ module RailsXz
           lines << ""
           lines << "  # #{signature_doc(extern)}"
           lines << "  xz_func :#{extern.name}, #{brace_list(param_symbols(extern))}, " \
-                   "#{type_symbol(extern.return_type).inspect}"
+                   "#{type_symbol(extern.return_type).inspect}#{effects_option(extern)}"
         end
 
         lines << "end"
@@ -219,6 +245,16 @@ module RailsXz
 
         base = Types.primitive_symbol(type.name) || :"#{type.name}"
         mutable ? :"mut_#{base}" : base
+      end
+
+      # The GVL policy reads the compiler-verified effect profile from the
+      # declaration. A function with no profile emits nothing, so the loader
+      # treats it as unknown and releases the GVL (docs/01-bridge.md section 7).
+      def effects_option(extern)
+        labels = @effects[extern.name.to_sym]
+        return "" if labels.nil?
+
+        ", effects: #{labels.inspect}"
       end
 
       def render_type(type)
