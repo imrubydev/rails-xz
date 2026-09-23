@@ -134,6 +134,15 @@ the commit SHA. `source_path` is relative to `Rails.root`; `bindings_root`
 defaults to `lib/xz/bindings` and `build_root` to `vendor/xz`, both set through
 `RailsXz.configure`.
 
+The sequence is also atomic over the working tree, not just the card: before it
+writes anything, `Approval` snapshots the binding, header, and library it is
+about to touch, and any failed step restores them (removing the files the run
+created, putting back the ones it overwrote) and unstages the paths it staged.
+A failed approval therefore leaves no half-written binding or staged residue
+behind, so a retry starts from a clean tree and the review boundary stays the
+card's own files. `build_root` remains a gitignored build drop, so only files
+that actually changed are restored when they existed before.
+
 The `xz check --strict` gate (block unproven, untrusted claims unless a developer
 overrides with a recorded note) is not wired yet; it lands with the override-note
 field.
