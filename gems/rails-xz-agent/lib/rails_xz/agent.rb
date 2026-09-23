@@ -4,6 +4,7 @@ require "rails_xz/agent/version"
 require "rails_xz/agent/errors"
 require "rails_xz/agent/diagnostic"
 require "rails_xz/agent/check_json"
+require "rails_xz/agent/prompt"
 require "rails_xz/agent/loop"
 require "rails_xz/agent/generate_module_job" if defined?(ActiveJob)
 
