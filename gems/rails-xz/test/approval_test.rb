@@ -68,9 +68,9 @@ class ApprovalTest < ActiveSupport::TestCase
     assert_equal "alice", @card.decided_by
     assert_equal "deadbeef", @card.commit_sha
     assert_equal "deadbeef", result.commit_sha
-    assert_equal @root.join("app/xz/bindings/order.rb").to_s, result.binding_path
+    assert_equal @root.join("lib/xz/bindings/order.rb").to_s, result.binding_path
     assert_equal "# Generated binding\n",
-                 @root.join("app/xz/bindings/order.rb").read
+                 @root.join("lib/xz/bindings/order.rb").read
   end
 
   test "runs xz build --shared with the configured output and source" do
@@ -95,7 +95,7 @@ class ApprovalTest < ActiveSupport::TestCase
     add = calls.find { |call| call[:argv][1] == "add" }
     assert_equal(
       ["git", "add", "--", "app/xz/order.xz", "app/xz/order.xzint",
-       "app/xz/bindings/order.rb"],
+       "lib/xz/bindings/order.rb"],
       add[:argv]
     )
     assert_equal "alice", add[:env]["GIT_AUTHOR_NAME"]

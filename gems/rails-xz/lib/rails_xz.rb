@@ -18,18 +18,21 @@ module RailsXz
   # Host-app configuration, set in an initializer:
   #
   #   RailsXz.configure do |config|
-  #     config.bindings_root = "app/xz/bindings"
+  #     config.bindings_root = "lib/xz/bindings"
   #     config.build_root = "vendor/xz"
   #     config.git_identity = { name: "Dev", email: "dev@example.com" }
   #   end
   #
+  # `bindings_root` must be an autoloadable directory: a fresh Rails 7.1+ app
+  # has `config.autoload_lib(ignore: %w[assets tasks])`, so `lib/xz/bindings`
+  # maps to `Xz::Bindings::<Stem>` through Zeitwerk (docs/03-audit-engine.md §8).
   # `git_identity` is required for the P1 approval commit; leaving it unset makes
   # approval fail rather than fall back to the machine's global git identity.
   class Configuration
     attr_accessor :bindings_root, :build_root, :git_identity
 
     def initialize
-      @bindings_root = "app/xz/bindings"
+      @bindings_root = "lib/xz/bindings"
       @build_root = "vendor/xz"
       @git_identity = nil
     end
