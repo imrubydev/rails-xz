@@ -26,6 +26,7 @@ module RailsXz
 
       def self.extended(base)
         base.instance_variable_set(:@xz_library, nil)
+        base.instance_variable_set(:@xz_abi_digest, nil)
         base.instance_variable_set(:@xz_cstructs, {})
         base.instance_variable_set(:@xz_functions, {})
         base.instance_variable_set(:@xz_loader, nil)
@@ -35,6 +36,15 @@ module RailsXz
       # Records the shared object the binding loads. Resolution is lazy.
       def xz_library(path)
         @xz_library = path
+        @xz_ffi_marshaller = nil
+      end
+
+      # Records the ABI digest the binding was generated from. When present, the
+      # loader refuses to bind a library whose companion header no longer matches
+      # (docs/01-bridge.md section 3).
+      def xz_abi_digest(digest)
+        @xz_abi_digest = digest
+        @xz_loader = nil
         @xz_ffi_marshaller = nil
       end
 
@@ -80,6 +90,10 @@ module RailsXz
         @xz_cstructs.dup
       end
 
+      def xz_pinned_abi_digest
+        @xz_abi_digest
+      end
+
       def xz_loaded?
         !@xz_loader.nil?
       end
@@ -97,7 +111,7 @@ module RailsXz
             raise MarshallError, "no xz_library declared for #{self}"
           end
 
-          Loader.new(@xz_library).tap(&:load!)
+          Loader.new(@xz_library, expected_abi_digest: @xz_abi_digest).tap(&:load!)
         end
       end
 

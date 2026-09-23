@@ -180,6 +180,32 @@ class GeneratorTest < Minitest::Test
     assert_includes output, "xz_func :scale, { value: :float, out: :mut_float }, :int"
   end
 
+  def test_pins_a_generated_header_with_its_digest
+    output = RailsXz::Bridge::Generator
+             .new("librich.h", source: HEADER, module_name: "Xz::Bindings::Rich")
+             .generate
+
+    assert_includes output, "xz_abi_digest \"#{RailsXz::Bridge::Header.digest(HEADER)}\""
+  end
+
+  def test_does_not_pin_an_xzint_interface
+    output = generate("extern func noop()\n")
+
+    refute_includes output, "xz_abi_digest"
+  end
+
+  def test_pinned_source_evaluates_to_a_facade_module
+    output = RailsXz::Bridge::Generator
+             .new("librich.h", source: HEADER, module_name: "RichBinding")
+             .generate
+
+    namespace = Module.new
+    namespace.module_eval(output)
+    binding = namespace.const_get(:RichBinding)
+
+    assert_equal RailsXz::Bridge::Header.digest(HEADER), binding.xz_pinned_abi_digest
+  end
+
   def test_generated_source_evaluates_to_a_facade_module
     output = generate("extern func add(a: Int, b: Int) -> Int\n", module_name: "GeneratedBinding")
 

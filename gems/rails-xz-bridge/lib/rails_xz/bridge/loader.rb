@@ -22,11 +22,11 @@ module RailsXz
 
       attr_reader :path
 
-      def initialize(path, expected_xz_version: nil)
+      def initialize(path, expected_abi_digest: nil)
         @path = path
         @handle = nil
         @ffi_library = nil
-        @expected_xz_version = expected_xz_version
+        @expected_abi_digest = expected_abi_digest
       end
 
       def load!
@@ -34,7 +34,7 @@ module RailsXz
           raise VersionError, "cannot load #{@path}: file does not exist"
         end
 
-        verify_version!
+        verify_abi_digest!
         @handle = Fiddle.dlopen(@path)
         self
       end
@@ -87,20 +87,36 @@ module RailsXz
         )
       end
 
-      # Reads the companion metadata written next to the library by the build
-      # step. Phase 1 replaces this stub with the real metadata read.
-      def verify_version!
-        return if @expected_xz_version.nil?
+      # The compiler exposes no version string, so the binding pins the digest of
+      # the header `xz build --shared` wrote beside the library — the compiler's
+      # own description of the ABI (docs/01-bridge.md section 3). A different or
+      # missing header means the library no longer matches the binding, so the
+      # loader refuses to bind it rather than call a mismatched ABI.
+      def verify_abi_digest!
+        return if @expected_abi_digest.nil?
 
-        actual = read_compiler_version
-        return if actual == @expected_xz_version
+        actual = abi_digest
+        if actual.nil?
+          raise VersionError,
+                "#{@path}: companion header #{header_path} not found; " \
+                "cannot verify the pinned ABI digest #{@expected_abi_digest}"
+        end
+        return if actual == @expected_abi_digest
 
         raise VersionError,
-              "#{@path} was built by xz #{actual}, expected #{@expected_xz_version}"
+              "#{@path} does not match the pinned ABI digest " \
+              "(binding #{@expected_abi_digest}, header #{actual})"
       end
 
-      def read_compiler_version
-        nil
+      # The digest of the header beside the library, or nil when there is none.
+      def abi_digest
+        return nil unless File.exist?(header_path)
+
+        Header.digest(File.read(header_path))
+      end
+
+      def header_path
+        "#{@path.sub(/\.[^.\/]+\z/, '')}.h"
       end
     end
   end
