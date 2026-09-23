@@ -6,14 +6,17 @@ require "pathname"
 
 module RailsXz
   # The P1 approval action: build the shared library, regenerate the Ruby
-  # binding, and commit all three under the approving developer's identity.
-  # See docs/03-audit-engine.md section 5.
+  # binding from the compiler's header, and commit the source and binding under
+  # the approving developer's identity. See docs/03-audit-engine.md section 5.
   #
   #   RailsXz::Approval.call(card, by: "alice")
   #
-  # The steps run in order and the card is marked approved only after all three
-  # succeed, so a failed build never records a decision. A card that is not
-  # `pending` raises `AlreadyDecided`.
+  # The binding is generated from the `.h` that `xz build --shared` writes
+  # beside the library, not from a hand-authored `.xzint`: the header is the
+  # compiler's own, complete ABI description, so there is nothing to keep in
+  # sync (docs/01-bridge.md section 2). The steps run in order and the card is
+  # marked approved only after all three succeed, so a failed build never
+  # records a decision. A card that is not `pending` raises `AlreadyDecided`.
   class Approval
     Outcome = Struct.new(:stdout, :stderr, :success, keyword_init: true) do
       def success?
@@ -21,13 +24,14 @@ module RailsXz
       end
     end
 
-    Result = Struct.new(:library_path, :binding_path, :commit_sha, keyword_init: true)
+    Result = Struct.new(:library_path, :header_path, :binding_path, :commit_sha,
+                        keyword_init: true)
 
-    Paths = Struct.new(:source, :interface, :library, :binding, :stem, keyword_init: true)
+    Paths = Struct.new(:source, :header, :library, :binding, :stem, keyword_init: true)
 
     class Error < StandardError; end
     MissingSource = Class.new(Error)
-    MissingInterface = Class.new(Error)
+    MissingHeader = Class.new(Error)
     MissingGitIdentity = Class.new(Error)
     BuildFailed = Class.new(Error)
     BindFailed = Class.new(Error)
@@ -57,6 +61,7 @@ module RailsXz
       sha = commit!(paths)
       @card.approve!(by: @by, commit_sha: sha)
       Result.new(library_path: paths.library.to_s,
+                 header_path: paths.header.to_s,
                  binding_path: paths.binding.to_s,
                  commit_sha: sha)
     end
@@ -76,18 +81,12 @@ module RailsXz
       source = @root.join(relative)
       raise MissingSource, "source #{relative} does not exist" unless source.file?
 
-      interface = source.sub_ext(".xzint")
-      unless interface.file?
-        raise MissingInterface,
-              "no .xzint interface beside #{relative} " \
-              "(expected #{interface.relative_path_from(@root)})"
-      end
-
       stem = source.basename(".xz").to_s
+      build = @root.join(@config.build_root)
       Paths.new(
         source: source,
-        interface: interface,
-        library: @root.join(@config.build_root, "#{stem}#{platform_suffix}"),
+        header: build.join("#{stem}.h"),
+        library: build.join("#{stem}#{platform_suffix}"),
         binding: @root.join(@config.bindings_root, "#{stem}.rb"),
         stem: stem
       )
@@ -105,8 +104,17 @@ module RailsXz
       raise BuildFailed, "xz build --shared failed: #{e.message}"
     end
 
+    # The build step above is the only writer of the header, so a successful
+    # build with no header means the compiler emitted nothing to bind. That is a
+    # hard error, not an empty binding (ARCHITECTURE.md section 6).
     def bind!(paths)
-      source = @binder.call(paths.interface.to_s)
+      unless paths.header.file?
+        raise MissingHeader,
+              "xz build --shared wrote no header beside #{paths.library.basename} " \
+              "(expected #{paths.header.relative_path_from(@root)})"
+      end
+
+      source = @binder.call(paths.header.to_s)
       FileUtils.mkdir_p(paths.binding.dirname)
       File.write(paths.binding, source)
     rescue Bridge::Error => e
@@ -115,7 +123,7 @@ module RailsXz
 
     def commit!(paths)
       env = git_identity_env
-      files = [paths.source, paths.interface, paths.binding]
+      files = [paths.source, paths.binding]
               .map { |path| path.relative_path_from(@root).to_s }
 
       add = @runner.call(["git", "add", "--", *files], env)
@@ -153,8 +161,8 @@ module RailsXz
       "xz: #{intent}"
     end
 
-    def generate_binding(interface)
-      Bridge::Generator.new(interface).generate
+    def generate_binding(header)
+      Bridge::Generator.new(header).generate
     end
 
     def platform_suffix
