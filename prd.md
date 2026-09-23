@@ -125,9 +125,10 @@ Component contracts are specified in [ARCHITECTURE.md](ARCHITECTURE.md).
 - **P0 — Type marshalling.** A fast C-marshal layer converting between Ruby
   primitives (`Integer`, `Float`, `String`, `Hash`) and Xz's statically typed
   structures.
-- **P0 — Binding generator.** Emit Ruby bindings from `.xzint` interfaces or the
-  header produced by `xz build --shared`, mirroring the existing
-  `xz pkg gen --lang python` flow with a Ruby target.
+- **P0 — Binding generator.** Emit Ruby bindings from `.xzint` interfaces, the
+  header produced by `xz build --shared`, or an `.xz` module's `@export`
+  surface, mirroring the existing `xz pkg gen --lang python` flow with a Ruby
+  target.
 - **P0 — Only `@export` functions cross the boundary.** Every exported signature
   must be C-representable end to end (`Bool`, `Int`, `usize`, `Float`, `Char`,
   `Str`, `Bytes`, `Ptr`, `@cstruct record`; `Unit` return only). A non

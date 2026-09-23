@@ -17,8 +17,9 @@ From the Xz FFI spec:
   guarantee). `mut` parameters map to `T*` (C in/out).
 - The generated header is an honest, complete description of the ABI.
 
-The bridge consumes exactly this surface. It never reads Xz source to guess a
-layout; it reads the generated header or the `.xzint` interface.
+The bridge consumes exactly this surface. It never guesses a layout: it reads
+the generated header, the `.xzint` interface, or the `@export` surface of an
+`.xz` module.
 
 ## 2. Interface-first workflow
 
@@ -32,6 +33,14 @@ liborder.xzint ──► xz pkg gen --lang python   (existing)
                         ▼
                   app/xz/bindings/order.rb
 ```
+
+The generator selects its input by extension:
+
+| Input | Read as | Pinned |
+|---|---|---|
+| `order.h` | the compiler's C header (§2.1) | yes, by header ABI digest (§3) |
+| `order.xz` | an Xz module's `@export` surface (§2.2) | no |
+| anything else | a `.xzint` interface | no |
 
 `xz pkg gen --lang ruby` mirrors the existing `--lang python` target:
 
@@ -62,11 +71,30 @@ type table (§6.1) instead of guessing a layout:
 | `void` (return only) | no return |
 | a `typedef struct` name | `@cstruct` |
 
-The parser is chosen from the file name: a `.h` path is read as a generated
-header, any other path as an `.xzint` interface. The `XzStr`/`XzBytes` carrier
-typedefs, the include block, and the include guard are skipped. A C type outside
-the table is a `HeaderError`, never a silent cast — the same no-degradation rule
-as the `.xzint` path.
+The parser is chosen from the file name (§2): a `.h` path is read as a generated
+header, an `.xz` path as an Xz module, and any other path as an `.xzint`
+interface. The `XzStr`/`XzBytes` carrier typedefs, the include block, and the
+include guard are skipped. A C type outside the table is a `HeaderError`, never
+a silent cast — the same no-degradation rule as the `.xzint` path.
+
+### 2.2 Generating from an Xz module
+
+When the module itself is the artifact — the agent's candidate, or a checked-in
+`.xz` file — the generator reads its `@export` surface directly. It extracts the
+`@export func` signatures and the `@cstruct record` declarations, and reads each
+function's `@effects` label from its intent comment (§7). Bodies and
+non-exported declarations (`func`, `task`, `chan`, `extern`, `enum`, plain
+`record`) are skipped: only `@export` functions cross the ABI. The module is
+then a single source for both compilation and binding, so a signature and its
+effect profile cannot drift apart.
+
+The reader tracks brace depth and skips strings, characters, and comments, so a
+keyword inside a body is never mistaken for a declaration; it is not a full
+parser. A union type, a `transfer` parameter, an `async` export, or any
+non-`@export`/`@cstruct` attribute is a `SourceError`. Because there is no
+compiler header, the `.xz` path is not ABI-pinned, like the `.xzint` path; build
+the binding from the generated `.h` instead when a pin is required.
+
 
 ## 3. Loading the library
 

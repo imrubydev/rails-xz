@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "open3"
+require "tmpdir"
 
 class GeneratorTest < Minitest::Test
   LIBRARY = <<~XZINT
@@ -216,5 +218,122 @@ class GeneratorTest < Minitest::Test
     assert binding.declared_functions.key?(:add)
     assert_equal({ a: :int, b: :int }, binding.declared_functions.fetch(:add)[:params])
     assert_equal :int, binding.declared_functions.fetch(:add)[:returns]
+  end
+
+  MODULE = <<~XZ
+    /// @intent  Adds two integers.
+    /// @effects none
+    @export func add(a: Int, b: Int) -> Int
+    {
+        a + b
+    }
+
+    /// @intent  Writes a value through an out-parameter.
+    /// @effects mut
+    @export func scale(value: Float, mut out: Float) -> Int
+    {
+        0
+    }
+
+    func helper(x: Int) -> Int { x + 1 }
+
+    @cstruct record Point {
+        x: Int
+        y: Int
+    }
+  XZ
+
+  def generate_module(source, **options)
+    RailsXz::Bridge::Generator
+      .new("order.xz", source: source, module_name: "Xz::Bindings::Order", **options)
+      .generate
+  end
+
+  def test_reads_an_xz_module_path
+    output = generate_module(MODULE)
+
+    assert_includes output, "module Xz::Bindings::Order"
+    assert_includes output, "xz_cstruct :Point, { x: :int, y: :int }"
+    assert_includes output, "xz_func :add, { a: :int, b: :int }, :int, effects: [:none]"
+    assert_includes output, "xz_func :scale, { value: :float, out: :mut_float }, :int, effects: [:mut]"
+  end
+
+  def test_xz_module_does_not_bind_non_exported_functions
+    output = generate_module(MODULE)
+
+    refute_includes output, "xz_func :helper"
+  end
+
+  def test_reads_the_effect_profile_from_the_module
+    output = generate_module(MODULE, module_name: "ModuleEffectBinding")
+
+    namespace = Module.new
+    namespace.module_eval(output)
+    binding = namespace.const_get(:ModuleEffectBinding)
+
+    assert_equal [:none], binding.declared_functions.fetch(:add)[:effects]
+    assert_equal [:mut], binding.declared_functions.fetch(:scale)[:effects]
+  end
+
+  def test_an_explicit_effect_profile_wins_over_the_module
+    output = generate_module(MODULE, effects: { add: [:io] })
+
+    assert_includes output, "xz_func :add, { a: :int, b: :int }, :int, effects: [:io]"
+  end
+
+  def test_an_xz_module_without_effects_emits_no_profile
+    output = generate_module("/// @intent x\n@export func f() -> Int { 0 }\n")
+
+    refute_includes output, "effects:"
+  end
+
+  def test_an_xz_module_is_not_abi_pinned
+    output = generate_module(MODULE)
+
+    refute_includes output, "xz_abi_digest"
+  end
+
+  # End-to-end: an `.xz` module generates a binding and the binding calls the
+  # library built from the same module. Skipped unless XZ_BIN is set.
+  def test_generates_from_a_real_module_and_calls_the_library
+    skip "XZ_BIN is not set; skipping the module end-to-end" unless RailsXz::Toolchain.configured?
+
+    Dir.mktmpdir("rails-xz-source") do |dir|
+      source = File.join(dir, "math.xz")
+      File.write(source, <<~XZ)
+        /// @intent  Adds two integers.
+        /// @effects none
+        @export func add(a: Int, b: Int) -> Int
+        {
+            a + b
+        }
+
+        /// @intent  Writes a value through an out-parameter.
+        /// @effects mut
+        @export func bump(value: Float, mut out: Float) -> Int
+        {
+            out = value
+            0
+        }
+      XZ
+
+      lib = File.join(dir, "libmath.so")
+      out, err, status = Open3.capture3(RailsXz::Toolchain.xz_bin,
+                                        "build", "--shared", "--out", lib, source)
+      assert status.success?, "xz build --shared failed: #{err}#{out}"
+
+      code = RailsXz::Bridge::Generator
+             .new(source, lib: lib, module_name: "MathBinding")
+             .generate
+
+      namespace = Module.new
+      namespace.module_eval(code)
+      binding = namespace.const_get(:MathBinding)
+
+      assert_equal 5, binding.add(2, 3)
+      status_value, updated = binding.bump(4.0, 0.0)
+      assert_equal 0, status_value
+      assert_equal({ out: 4.0 }, updated)
+    end
   end
 end
