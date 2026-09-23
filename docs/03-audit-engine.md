@@ -72,12 +72,25 @@ review note, so an unproven claim is visible as a proof gap rather than a fact.
 
 ## 4. Diff view
 
-The card shows the candidate source against the last approved revision:
+The card shows the candidate source against the last approved revision, stored
+as a unified diff in `AuditCard#diff` and parsed by `RailsXz::UnifiedDiff`:
 
 - added/removed lines,
 - changed contract lines highlighted (a claim change is as important as a body
-  change),
+  change); a changed line carrying `@intent`, `@requires`, `@ensures`,
+  `@effects`, or `@trusted` gets `data-contract-change="true"`,
 - the diagnostic run that cleared the candidate (attempt count, final codes).
+
+`RailsXz::DiffComponent` renders both. The clearing run lives in
+`AuditCard#diagnostics`:
+
+```json
+{ "attempts": 2, "codes": ["I0020"] }
+```
+
+`attempts` is how many tries the agent took before the candidate cleared;
+`codes` are the diagnostic codes that run reported (empty once the source is
+clean). A blank diff renders nothing.
 
 ## 5. Approval action
 
@@ -121,7 +134,7 @@ class RailsXz::AuditCard < ApplicationRecord
   # declared_effects :json   # ["none"]
   # derived_effects  :json   # ["io"]
   # trusted_claims   :json   # [{ claim:, note: }]
-  # diagnostics      :json   # the clearing run
+  # diagnostics      :json   # the clearing run: { attempts:, codes: }
   # diff             :text    # unified diff vs last approved
   # status           :string  # pending | approved | rejected | blocked
 end

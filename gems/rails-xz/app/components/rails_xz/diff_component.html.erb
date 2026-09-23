@@ -1,0 +1,26 @@
+<% if present? %>
+  <section class="xz-diff" data-diff-kind="unified">
+    <h3 class="xz-diff__title">Diff vs last approved</h3>
+
+    <div class="xz-diff__lines">
+      <% lines.each do |line| %>
+        <span class="<%= line_class(line) %>" data-line-kind="<%= line.kind %>"<% if line.changed? && line.contract? %> data-contract-change="true"<% end %>><span class="xz-diff__marker"><%= line.marker %></span><%= line.text %></span>
+      <% end %>
+    </div>
+
+    <% if run_present? %>
+      <p class="xz-diff__run">
+        <% if attempts.present? %>
+          Cleared after <%= attempts %> attempt<%= attempts == 1 ? "" : "s" %>
+        <% else %>
+          Clearing run
+        <% end %>
+        <% if codes.any? %>
+          &middot; final codes: <%= codes.join(", ") %>
+        <% else %>
+          &middot; no diagnostics remain
+        <% end %>
+      </p>
+    <% end %>
+  </section>
+<% end %>

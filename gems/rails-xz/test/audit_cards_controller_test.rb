@@ -99,6 +99,38 @@ class AuditCardsControllerTest < ActionDispatch::IntegrationTest
     refute_match "xz-trusted-marker", response.body
   end
 
+  test "show renders the unified diff with contract changes flagged" do
+    card = RailsXz::AuditCard.create!(
+      module_name: "diffed",
+      declared_effects: %w[io],
+      derived_effects: %w[io],
+      diff: <<~DIFF,
+        @@ -1,2 +1,2 @@
+        -/// @effects none
+        +/// @effects io
+         fn total() -> Float { 1.0 }
+      DIFF
+      diagnostics: { "attempts" => 2, "codes" => %w[I0020] }
+    )
+
+    get "/xz_audit/modules/#{card.id}"
+
+    assert_response :success
+    assert_match "xz-diff", response.body
+    assert_match "xz-diff__line--added", response.body
+    assert_match "xz-diff__line--removed", response.body
+    assert_match 'data-contract-change="true"', response.body
+    assert_match "Cleared after 2 attempts", response.body
+    assert_match "I0020", response.body
+  end
+
+  test "show omits the diff section when there is no diff" do
+    get "/xz_audit/modules/#{@card.id}"
+
+    assert_response :success
+    refute_match "xz-diff__lines", response.body
+  end
+
   test "approve records the decision and redirects" do
     post "/xz_audit/modules/#{@card.id}/approve"
 
