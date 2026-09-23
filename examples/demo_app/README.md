@@ -13,8 +13,7 @@ build first.
 | Path | Role |
 |---|---|
 | `app/xz/order.xz` | the Xz module (`@export payable_total`), reviewed in the audit board |
-| `app/xz/order.xzint` | the interface the binding is generated from |
-| `lib/xz/bindings/order.rb` | the generated binding (`Xz::Bindings::Order`) |
+| `lib/xz/bindings/order.rb` | the generated binding (`Xz::Bindings::Order`), from the compiler header |
 | `app/services/orders/total_service.rb` | the service DSL (`xz_module "order"`) |
 | `config/routes.rb` | the mount, development/test only |
 
@@ -40,9 +39,9 @@ Then visit `/xz_audit` (development only).
 ## Build and approve a module
 
 ```bash
-"$XZ_BIN" build --shared --out vendor/xz/liborder.so app/xz/order.xz
+"$XZ_BIN" build --shared --out vendor/xz/order.so app/xz/order.xz
 ```
 
 The audit board's one-click approval runs the same build, regenerates the
-binding from `order.xzint`, and commits all three under
-`RailsXz.config.git_identity`.
+binding from the emitted `vendor/xz/order.h`, and commits the source and binding
+under `RailsXz.config.git_identity`.
