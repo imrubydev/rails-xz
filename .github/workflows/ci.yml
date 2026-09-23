@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    env:
+      # Xz's LLVM backend (inkwell) needs an LLVM 17 prefix. The Xz checkout
+      # pins a machine-local prefix in its .cargo/config.toml, which the build
+      # step removes; these variables take over.
+      LLVM_SYS_170_PREFIX: /usr/lib/llvm-17
+      LIBRARY_PATH: /usr/lib/llvm-17/lib
+      LLC: /usr/lib/llvm-17/bin/llc
+      CARGO_BUILD_JOBS: "2"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+
+      - name: Install LLVM 17
+        run: |
+          wget -q https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 17
+          sudo apt-get install -y llvm-17-dev libllvm17
+
+      # The Xz compiler is not distributed with this repository (docs/07).
+      - uses: actions/checkout@v4
+        with:
+          repository: x1zzdev/Xz
+          # Pinned so a compiler change cannot silently move the examples check.
+          ref: 15aa91d4473af45f9e6eddfb6ea3c6bab3f6a9fa
+          path: Xz
+
+      - name: Cache the Xz build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            Xz/xz-cli/target
+          key: xz-${{ runner.os }}-${{ hashFiles('Xz/xz-cli/Cargo.lock') }}
+
+      - name: Build the Xz CLI
+        run: |
+          rm -f Xz/xz-cli/.cargo/config.toml
+          cargo build --release --manifest-path Xz/xz-cli/Cargo.toml
+          echo "XZ_BIN=${{ github.workspace }}/Xz/xz-cli/target/release/xz" >> "$GITHUB_ENV"
+
+      - name: Run the gem test suite
+        run: bundle exec rake test
+
+      - name: Check the example contracts
+        run: |
+          for f in examples/*.xz; do
+            "$XZ_BIN" check-json "$f"
+          done

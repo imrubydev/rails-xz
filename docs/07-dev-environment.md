@@ -91,8 +91,10 @@ cd gems/rails-xz-bridge && bundle install && bundle exec rake test
 bundle exec rubocop
 ```
 
-There is no CI yet; Phase 1 adds a GitHub Actions workflow that runs the same
-commands.
+CI runs the same commands in `.github/workflows/ci.yml`. It builds the Xz CLI
+from the pinned `x1zzdev/Xz` commit (LLVM 17) and exports `XZ_BIN` before
+running `bundle exec rake test` and `xz check-json examples/*.xz`, so the
+shared-library tests exercise the real compiler instead of skipping.
 
 ## 6. Environment variables
 
