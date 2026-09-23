@@ -131,4 +131,6 @@ git operation.
 - Ruby/Rails are not installed on every development machine yet; the gem
   skeletons exist but have not been executed. Phase 1's first task is to run
   `bundle exec rake test` on a real Ruby.
-- The demo app in `examples/demo_app` does not exist yet (Phase 4).
+- The demo app in `examples/demo_app` is a skeleton (Phase 4): it boots, mounts
+  the Engine, and resolves the sample binding, but the compiled `.so` is not
+  committed, so calling the module needs a build first.

@@ -69,13 +69,13 @@ Inputs: an `.xzint` interface file or a `.xz` source with `@export` functions.
 Outputs: a Ruby module with typed methods and a loader.
 
 ```ruby
-# generated: app/xz/bindings/order.rb
+# generated: lib/xz/bindings/order.rb
 module Xz::Bindings::Order
   extend RailsXz::Bridge::Facade
   payable_total(subtotal: :double, tax_rate: :double) # -> Float
 end
 
-# generated: app/xz/bindings/_loader.rb
+# generated: lib/xz/bindings/_loader.rb
 # Loads vendor/xz/liborder.so through Fiddle, or ffi for by-value structs.
 # Raises RailsXz::Bridge::VersionError if the library's xz version != pinned.
 ```

@@ -130,7 +130,7 @@ module that did not build, bind, and commit.
 
 Only after all three succeed does `AuditCard#approve!` record the decision and
 the commit SHA. `source_path` is relative to `Rails.root`; `bindings_root`
-defaults to `app/xz/bindings` and `build_root` to `vendor/xz`, both set through
+defaults to `lib/xz/bindings` and `build_root` to `vendor/xz`, both set through
 `RailsXz.configure`.
 
 The `xz check --strict` gate (block unproven, untrusted claims unless a developer
@@ -191,6 +191,12 @@ end
 - `include RailsXz::XzModule` adds the class macro; `xz_module name, effects:`
   resolves the generated binding `Xz::Bindings::<Camelized name>`
   ([docs/01-bridge.md](01-bridge.md) §6).
+- Bindings are written to `RailsXz.config.bindings_root` (default
+  `lib/xz/bindings`), which `config.autoload_lib` maps to
+  `Xz::Bindings::<Stem>` through Zeitwerk. A fresh Rails 7.1+ app already has
+  `config.autoload_lib(ignore: %w[assets tasks])`. A binding under `app/xz/`
+  instead maps to `Bindings::<Stem>` and would not resolve, so the Engine keeps
+  bindings out of `app/`.
 - A generated binding declares its functions as module-level methods through
   `RailsXz::Bridge::Facade`, so `include` alone does not make them instance
   methods. The DSL forwards each declared function to the binding; a method the
