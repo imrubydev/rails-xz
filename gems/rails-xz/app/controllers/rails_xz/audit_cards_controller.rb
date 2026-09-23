@@ -12,8 +12,10 @@ module RailsXz
 
     def approve
       card = AuditCard.find(params[:id])
-      card.approve!(by: current_actor)
+      RailsXz::Approval.call(card, by: current_actor)
       render_decision(card)
+    rescue RailsXz::Approval::Error => e
+      redirect_to card, alert: e.message
     end
 
     def reject

@@ -1,8 +1,18 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "minitest/mock"
 
 class AuditCardsControllerTest < ActionDispatch::IntegrationTest
+  # The approval pipeline shells out to xz and git; the controller's contract is
+  # that it calls RailsXz::Approval and renders the decision. Approval itself is
+  # unit-tested in approval_test.rb.
+  def stub_approval
+    RailsXz::Approval.stub(:call, ->(card, by:, **) { card.approve!(by: by) }) do
+      yield
+    end
+  end
+
   setup do
     @card = RailsXz::AuditCard.create!(
       module_name: "order",
@@ -132,7 +142,7 @@ class AuditCardsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "approve records the decision and redirects" do
-    post "/xz_audit/modules/#{@card.id}/approve"
+    stub_approval { post "/xz_audit/modules/#{@card.id}/approve" }
 
     assert_response :redirect
     assert_equal "approved", @card.reload.status
@@ -149,7 +159,9 @@ class AuditCardsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "approve over Turbo Streams replaces the card in place" do
-    post "/xz_audit/modules/#{@card.id}/approve", as: :turbo_stream
+    stub_approval do
+      post "/xz_audit/modules/#{@card.id}/approve", as: :turbo_stream
+    end
 
     assert_response :success
     assert_equal "text/vnd.turbo-stream.html", response.media_type

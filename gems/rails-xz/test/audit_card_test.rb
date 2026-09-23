@@ -51,6 +51,14 @@ class AuditCardTest < ActiveSupport::TestCase
     assert_operator card.decided_at, :>=, before
   end
 
+  test "approve! records the approval commit sha" do
+    card = create_card
+
+    card.approve!(by: "alice", commit_sha: "deadbeef")
+
+    assert_equal "deadbeef", card.commit_sha
+  end
+
   test "approve! persists the decision" do
     id = create_card.id
 
