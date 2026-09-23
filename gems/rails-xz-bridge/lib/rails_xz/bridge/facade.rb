@@ -10,10 +10,10 @@ module RailsXz
     # C ABI. See docs/01-bridge.md section 6.2.
     #
     # A signature that crosses a by-value aggregate (`Str`, `Bytes`, or a
-    # `@cstruct`) is bound through FfiMarshaller, because Fiddle cannot pass or
-    # return a C struct by value. Scalar- and pointer-only signatures use
-    # Fiddle, so the common path keeps no native dependency beyond the gem
-    # itself. `mut` cells still fail with MarshallError until their slice lands.
+    # `@cstruct`) or carries a `mut` cell is bound through FfiMarshaller, because
+    # Fiddle cannot pass or return a C struct by value and ffi allocates a typed
+    # in/out cell. Scalar- and pointer-only signatures use Fiddle, so the common
+    # path keeps no native dependency beyond the gem itself.
     module Facade
       FIDDLE_TYPES = {
         bool: Fiddle::TYPE_CHAR,
@@ -105,14 +105,19 @@ module RailsXz
         end
       end
 
-      # A by-value aggregate has no Fiddle representation, so its signature
-      # takes the ffi path (docs/01-bridge.md section 3).
+      # A by-value aggregate or a `mut` cell has no Fiddle representation, so its
+      # signature takes the ffi path (docs/01-bridge.md section 3).
       def _xz_ffi?(params, returns)
-        params.any? { |_param, symbol| _xz_aggregate?(symbol) } || _xz_aggregate?(returns)
+        params.any? { |_param, symbol| _xz_aggregate?(symbol) || _xz_mut?(symbol) } ||
+          _xz_aggregate?(returns)
       end
 
       def _xz_aggregate?(symbol)
         symbol == :str || symbol == :bytes || @xz_cstructs.key?(symbol)
+      end
+
+      def _xz_mut?(symbol)
+        symbol.to_s.start_with?("mut_")
       end
 
       def _xz_ffi_marshaller
