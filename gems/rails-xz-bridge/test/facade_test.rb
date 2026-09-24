@@ -32,6 +32,14 @@ class FacadeTest < Minitest::Test
     assert_equal({ r: :usize, g: :usize, b: :usize, a: :usize }, mod.declared_cstructs[:Color])
   end
 
+  def test_xz_abi_records_the_binding_profile
+    mod = binding_module
+
+    assert_nil mod.xz_abi_profile
+    mod.xz_abi :xz_shared
+    assert_equal :xz_shared, mod.xz_abi_profile
+  end
+
   def test_xz_func_defines_a_singleton_method_and_records_the_signature
     mod = binding_module
     mod.xz_func(:add, { a: :int, b: :int }, :int)

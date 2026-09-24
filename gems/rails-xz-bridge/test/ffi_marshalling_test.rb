@@ -145,6 +145,53 @@ class FfiMarshallingTest < Minitest::Test
     end
   end
 
+  def test_xz_shared_binding_refuses_a_by_value_struct_over_16_bytes
+    with_library do |mod|
+      mod.xz_abi :xz_shared
+      mod.xz_cstruct(:Point, { x: :int, y: :int })
+      mod.xz_cstruct(:Rect, { tl: :Point, br: :Point })
+      mod.xz_func(:rect_area, { r: :Rect }, :int)
+
+      rect = mod::Rect.new(tl: mod::Point.new(x: 1, y: 2), br: mod::Point.new(x: 4, y: 6))
+      error = assert_raises(RailsXz::Bridge::MarshallError) { mod.rect_area(rect) }
+      assert_match(/Rect is 32 bytes/, error.message)
+      assert_match(/shared ABI/, error.message)
+    end
+  end
+
+  def test_xz_shared_binding_refuses_a_large_by_value_return
+    with_library do |mod|
+      mod.xz_abi :xz_shared
+      mod.xz_cstruct(:Point, { x: :int, y: :int })
+      mod.xz_cstruct(:Rect, { tl: :Point, br: :Point })
+      mod.xz_func(:make_rect, { x1: :int, y1: :int, x2: :int, y2: :int }, :Rect)
+
+      error = assert_raises(RailsXz::Bridge::MarshallError) { mod.make_rect(1, 2, 4, 6) }
+      assert_match(/Rect is 32 bytes/, error.message)
+    end
+  end
+
+  def test_xz_shared_binding_still_passes_a_register_class_struct
+    with_library do |mod|
+      mod.xz_abi :xz_shared
+      mod.xz_cstruct(:Point, { x: :int, y: :int })
+      mod.xz_func(:point_sum, { p: :Point }, :int)
+
+      assert_equal 7, mod.point_sum(mod::Point.new(x: 3, y: 4))
+    end
+  end
+
+  def test_a_foreign_binding_is_not_guarded_for_a_large_struct
+    with_library do |mod|
+      mod.xz_cstruct(:Point, { x: :int, y: :int })
+      mod.xz_cstruct(:Rect, { tl: :Point, br: :Point })
+      mod.xz_func(:rect_area, { r: :Rect }, :int)
+
+      rect = mod::Rect.new(tl: mod::Point.new(x: 1, y: 2), br: mod::Point.new(x: 4, y: 6))
+      assert_equal 12, mod.rect_area(rect)
+    end
+  end
+
   def test_ptr_round_trips_as_a_handle
     with_library do |mod|
       mod.xz_func(:ptr_roundtrip, { p: :ptr }, :ptr)

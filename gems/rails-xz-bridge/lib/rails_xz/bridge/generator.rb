@@ -52,6 +52,14 @@ module RailsXz
         File.extname(display_path.to_s) == ".h"
       end
 
+      # A `.h` header is the one `xz build --shared` writes, so the surface is
+      # the compiler's and the ffi marshaller guards its by-value `@cstruct`
+      # crossings. A `.xzint` interface describes a foreign C library and stays
+      # unguarded (docs/01-bridge.md section 4.3).
+      def xz_shared_surface?
+        header_source?
+      end
+
       def source
         @source || File.read(@interface_path)
       end
@@ -190,6 +198,7 @@ module RailsXz
         lines << "  extend RailsXz::Bridge::Facade"
         lines << ""
         lines << "  xz_library #{double_quoted(lib_name)}"
+        lines << "  xz_abi :xz_shared" if xz_shared_surface?
 
         ordered_cstructs(parsed).each do |record|
           lines << ""

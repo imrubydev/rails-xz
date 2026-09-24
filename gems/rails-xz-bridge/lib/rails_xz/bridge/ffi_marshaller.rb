@@ -34,6 +34,15 @@ module RailsXz
 
       MUT_PREFIX = "mut_"
 
+      # The C ABI passes and returns a struct of at most two eightbytes (16
+      # bytes) in registers. The Xz compiler's `xz build --shared` only honors
+      # that register class: for a larger by-value `@cstruct` its emitted code
+      # does not match the C header it writes (a C caller using the header gets
+      # garbage). A binding tagged `xz_abi :xz_shared` therefore refuses the
+      # crossing instead of corrupting it silently (docs/01-bridge.md section
+      # 4.3). A foreign `.xzint` library is untagged and keeps the full range.
+      XZ_SHARED_BY_VALUE_LIMIT = 16
+
       # A typed in/out cell: the native memory the callee writes through, plus
       # the reader that turns it back into a Ruby value after the call.
       Cell = Struct.new(:pointer, :reader) do
@@ -97,9 +106,27 @@ module RailsXz
         return primitive if primitive
         return XzStr.by_value if symbol == :str
         return XzBytes.by_value if symbol == :bytes
-        return cstruct_class(symbol).by_value if cstruct?(symbol)
+        return cstruct_by_value(symbol, context) if cstruct?(symbol)
 
         raise MarshallError, Values.unsupported(context, symbol)
+      end
+
+      # A by-value `@cstruct` from an `xz build --shared` surface is only trusted
+      # up to the register class; a larger one is refused before the call so it
+      # never crosses the ABI corrupted (docs/01-bridge.md section 4.3).
+      def cstruct_by_value(symbol, context)
+        klass = cstruct_class(symbol)
+        if @binding.xz_abi_profile == :xz_shared && klass.size > XZ_SHARED_BY_VALUE_LIMIT
+          raise MarshallError,
+                "#{context}: @cstruct #{symbol} is #{klass.size} bytes; the Xz " \
+                "compiler's shared ABI only honors a by-value struct up to " \
+                "#{XZ_SHARED_BY_VALUE_LIMIT} bytes, so this crossing would be " \
+                "corrupted (docs/01-bridge.md section 4.3). Pass it by `mut` " \
+                "pointer, through a foreign `.xzint` interface, or bind a C " \
+                "library built from the C layout directly"
+        end
+
+        klass.by_value
       end
 
       # A struct field nests by value, so it uses the plain class, not
