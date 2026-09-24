@@ -66,6 +66,20 @@ class AggregateLibraryTest < Minitest::Test
         n
     }
 
+    @cstruct record Color {
+        r: Int
+        g: Int
+        b: Int
+        a: Int
+    }
+
+    /// Returns the color unchanged.
+    /// @intent  Returns the color unchanged.
+    /// @effects none
+    @export func echo_color(c: Color) -> Color {
+        c
+    }
+
     func main() {
         print("aggregate\\n")
     }
@@ -104,6 +118,31 @@ class AggregateLibraryTest < Minitest::Test
       value, out = mod.bump(41)
       assert_equal 42, value
       assert_equal({ n: 42 }, out)
+    end
+  end
+
+  # The product path: a binding generated from the compiler's own header is
+  # tagged `xz_abi :xz_shared`, so the ffi marshaller refuses a by-value
+  # `@cstruct` the compiler does not lay out per that header (docs/01 section
+  # 4.3). The 16-byte `Point` still crosses.
+  def test_generated_binding_guards_a_memory_class_struct
+    Dir.mktmpdir("rails-xz-aggregate") do |dir|
+      lib = File.join(dir, "libaggregate.so")
+      build!(dir, lib)
+
+      header = File.join(dir, "libaggregate.h")
+      source = RailsXz::Bridge::Generator
+               .new(header, lib: lib, module_name: "AggregateBinding")
+               .generate
+      namespace = Module.new
+      namespace.module_eval(source)
+      binding = namespace.const_get(:AggregateBinding)
+
+      assert_equal 7, binding.point_sum(binding::Point.new(x: 3, y: 4))
+
+      color = binding::Color.new(r: 1, g: 2, b: 3, a: 4)
+      error = assert_raises(RailsXz::Bridge::MarshallError) { binding.echo_color(color) }
+      assert_match(/Color is 32 bytes/, error.message)
     end
   end
 

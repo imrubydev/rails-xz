@@ -180,6 +180,20 @@ class GeneratorTest < Minitest::Test
     assert_includes output, "xz_func :scale, { value: :float, out: :mut_float }, :int"
   end
 
+  def test_marks_a_generated_header_binding_as_xz_shared
+    output = RailsXz::Bridge::Generator
+             .new("librich.h", source: HEADER, module_name: "Xz::Bindings::Rich")
+             .generate
+
+    assert_includes output, "xz_abi :xz_shared"
+  end
+
+  def test_does_not_mark_an_xzint_binding_as_xz_shared
+    output = generate("extern func noop()\n")
+
+    refute_includes output, "xz_abi"
+  end
+
   def test_generated_source_evaluates_to_a_facade_module
     output = generate("extern func add(a: Int, b: Int) -> Int\n", module_name: "GeneratedBinding")
 

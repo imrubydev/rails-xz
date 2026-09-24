@@ -26,6 +26,7 @@ module RailsXz
 
       def self.extended(base)
         base.instance_variable_set(:@xz_library, nil)
+        base.instance_variable_set(:@xz_abi, nil)
         base.instance_variable_set(:@xz_cstructs, {})
         base.instance_variable_set(:@xz_functions, {})
         base.instance_variable_set(:@xz_loader, nil)
@@ -36,6 +37,20 @@ module RailsXz
       def xz_library(path)
         @xz_library = path
         @xz_ffi_marshaller = nil
+      end
+
+      # Records the ABI provenance of the binding. `:xz_shared` marks a surface
+      # the Xz compiler built (`xz build --shared`); the ffi marshaller reads it
+      # to refuse a by-value `@cstruct` the compiler does not lay out per the C
+      # header (docs/01-bridge.md section 4.3). A foreign `.xzint` binding is
+      # left untagged and bound as before.
+      def xz_abi(profile)
+        @xz_abi = profile
+        @xz_ffi_marshaller = nil
+      end
+
+      def xz_abi_profile
+        @xz_abi
       end
 
       # Defines a Ruby `Data` constant with the record's field order. The C
