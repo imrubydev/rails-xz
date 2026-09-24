@@ -13,6 +13,14 @@ class ToolchainTest < Minitest::Test
 
   XZ_UTILS_BANNER = "xz (XZ Utils) 5.8.3"
 
+  def setup
+    RailsXz::Toolchain.reset!
+  end
+
+  def teardown
+    RailsXz::Toolchain.reset!
+  end
+
   def with_env(value)
     original = ENV["XZ_BIN"]
     ENV["XZ_BIN"] = value
@@ -22,19 +30,25 @@ class ToolchainTest < Minitest::Test
   end
 
   # A stand-in for the language CLI: it answers `--version` with the usage
-  # banner and otherwise succeeds, so the probe accepts it.
-  def stub_language_cli(dir, name: "xz", banner: LANGUAGE_BANNER)
+  # banner and otherwise succeeds, so the probe accepts it. When `log` is given
+  # it appends one line per `--version`, so a test can count probes.
+  def stub_language_cli(dir, name: "xz", banner: LANGUAGE_BANNER, log: nil)
     path = File.join(dir, name)
+    log_line = log ? "printf 'run\\n' >> '#{log}'\n" : ""
     File.write(path, <<~SH)
       #!/bin/sh
       if [ "$1" = "--version" ]; then
-        printf '%s\\n' '#{banner}'
+        #{log_line}printf '%s\\n' '#{banner}'
         exit 0
       fi
       exit 0
     SH
     File.chmod(0o755, path)
     path
+  end
+
+  def probe_count(log)
+    File.exist?(log) ? File.readlines(log).length : 0
   end
 
   def test_explicit_override_wins_over_env
@@ -125,6 +139,59 @@ class ToolchainTest < Minitest::Test
       with_env(cli) { assert RailsXz::Toolchain.configured? }
       with_env(utils) { refute RailsXz::Toolchain.configured? }
       with_env("/does/not/exist/xz") { refute RailsXz::Toolchain.configured? }
+    end
+  end
+
+  def test_the_probe_is_memoized_per_path
+    Dir.mktmpdir("rails-xz-toolchain") do |dir|
+      log = File.join(dir, "probe.log")
+      cli = stub_language_cli(dir, log: log)
+
+      assert RailsXz::Toolchain.language_cli?(cli)
+      assert RailsXz::Toolchain.language_cli?(cli)
+
+      assert_equal 1, probe_count(log)
+    end
+  end
+
+  def test_xz_bin_and_configured_share_the_memoized_probe
+    Dir.mktmpdir("rails-xz-toolchain") do |dir|
+      log = File.join(dir, "probe.log")
+      cli = stub_language_cli(dir, log: log)
+
+      with_env(cli) do
+        assert_equal cli, RailsXz::Toolchain.xz_bin
+        assert_equal cli, RailsXz::Toolchain.xz_bin
+        assert RailsXz::Toolchain.configured?
+      end
+
+      assert_equal 1, probe_count(log)
+    end
+  end
+
+  def test_replacing_the_binary_in_place_reprobes
+    Dir.mktmpdir("rails-xz-toolchain") do |dir|
+      log = File.join(dir, "probe.log")
+      cli = stub_language_cli(dir, log: log)
+      assert RailsXz::Toolchain.language_cli?(cli)
+
+      stub_language_cli(dir, banner: XZ_UTILS_BANNER, log: log)
+      refute RailsXz::Toolchain.language_cli?(cli)
+
+      assert_equal 2, probe_count(log)
+    end
+  end
+
+  def test_reset_forces_a_reprobe
+    Dir.mktmpdir("rails-xz-toolchain") do |dir|
+      log = File.join(dir, "probe.log")
+      cli = stub_language_cli(dir, log: log)
+
+      assert RailsXz::Toolchain.language_cli?(cli)
+      RailsXz::Toolchain.reset!
+      assert RailsXz::Toolchain.language_cli?(cli)
+
+      assert_equal 2, probe_count(log)
     end
   end
 end

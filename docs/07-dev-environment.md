@@ -54,6 +54,13 @@ banner, so an `XZ_BIN` that points at `/usr/bin/xz` is rejected with
 applies the same probe, so a test that skips without the compiler also skips
 when `XZ_BIN` names the wrong program.
 
+The probe spawns a subprocess, so `Toolchain` memoizes it per path, keyed by the
+file's identity (device, inode, size, mtime, mode). Repeated `xz_bin` /
+`configured?` calls in one process — the agent retry loop resolves the CLI on
+every attempt — do not re-run `<path> --version`; replacing the binary in place
+changes the key and re-probes, and pointing `XZ_BIN` at a different path is a
+different key. `Toolchain.reset!` clears the cache explicitly.
+
 ## 3. Clone and install
 
 ```bash
