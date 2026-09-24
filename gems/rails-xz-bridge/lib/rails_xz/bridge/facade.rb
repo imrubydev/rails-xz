@@ -67,16 +67,22 @@ module RailsXz
       #
       # `effects` is the compiler-verified effect profile of an Xz `@export`
       # function (for example `[:none]`, `[:io]`); `release_gvl` forces the GVL
-      # to be released for this call. See docs/01-bridge.md section 7.
-      def xz_func(name, params, returns, effects: nil, release_gvl: false)
+      # to be released for this call. `transfer` names the parameters whose
+      # ownership moves to the callee, and `release` names the deallocator
+      # symbol of a `transfer` return (docs/01-bridge.md sections 4.6 and 7).
+      def xz_func(name, params, returns, effects: nil, release_gvl: false,
+                  transfer: [], release: nil)
         @xz_functions[name] = {
           params: params.freeze,
           returns: returns,
           effects: effects,
-          release_gvl: release_gvl
+          release_gvl: release_gvl,
+          transfer: transfer.freeze,
+          release: release
         }.freeze
         define_singleton_method(name) do |*args|
-          _xz_call(name, params, returns, args, effects: effects, release_gvl: release_gvl)
+          _xz_call(name, params, returns, args, effects: effects,
+                   release_gvl: release_gvl, transfer: transfer, release: release)
         end
       end
 
@@ -116,17 +122,19 @@ module RailsXz
         end
       end
 
-      def _xz_call(name, params, returns, args, effects:, release_gvl:)
+      def _xz_call(name, params, returns, args, effects:, release_gvl:, transfer:, release:)
         unless args.length == params.length
           raise ArgumentError,
                 "#{name} expects #{params.length} argument(s), got #{args.length}"
         end
 
-        release = _xz_release_gvl?(effects, release_gvl)
+        release_gvl = _xz_release_gvl?(effects, release_gvl)
         if _xz_ffi?(params, returns)
-          _xz_ffi_marshaller.call(name, params, returns, args, release_gvl: release)
+          _xz_ffi_marshaller.call(name, params, returns, args, release_gvl: release_gvl,
+                                                               transfer: transfer, release: release)
         else
-          _xz_call_fiddle(name, params, returns, args, release)
+          _xz_call_fiddle(name, params, returns, args, release_gvl,
+                          transfer: transfer, release: release)
         end
       end
 
@@ -160,19 +168,21 @@ module RailsXz
         @xz_ffi_marshaller ||= FfiMarshaller.new(self, xz_loader)
       end
 
-      def _xz_call_fiddle(name, params, returns, args, release_gvl)
+      def _xz_call_fiddle(name, params, returns, args, release_gvl, transfer:, release:)
         fiddle_args = params.map do |param_name, symbol|
           _xz_fiddle_type(symbol, context: "#{name} parameter '#{param_name}'")
         end
         fiddle_return = _xz_fiddle_return_type(returns, name)
 
         encoded = params.each_with_index.map do |(param_name, symbol), index|
-          _xz_encode(symbol, args[index], context: "#{name} parameter '#{param_name}'")
+          _xz_encode(symbol, args[index], context: "#{name} parameter '#{param_name}'",
+                                           transfer: transfer.include?(param_name))
         end
 
         function = xz_loader.function(name.to_s, fiddle_args, fiddle_return,
                                       need_gvl: !release_gvl)
-        _xz_decode(returns, function.call(*encoded), context: "#{name} return")
+        raw = function.call(*encoded)
+        _xz_decode(returns, raw, context: "#{name} return", release: release)
       end
 
       def _xz_fiddle_type(symbol, context:)
@@ -188,26 +198,38 @@ module RailsXz
         _xz_fiddle_type(returns, context: "#{name} return")
       end
 
-      def _xz_encode(symbol, value, context:)
+      def _xz_encode(symbol, value, context:, transfer: false)
         case symbol
+        when :ptr
+          transfer ? Values.transfer_address(value, context) : Values.handle_address(value, context)
         when :bool then value ? 1 : 0
         when :int, :usize then Integer(value)
         when :float then Float(value)
         when :char then Values.char_code(value, context)
-        when :ptr then Values.handle_address(value, context)
         else raise MarshallError, Values.unsupported(context, symbol)
         end
       end
 
-      def _xz_decode(symbol, raw, context:)
+      def _xz_decode(symbol, raw, context:, release: nil)
         case symbol
         when :unit then nil
         when :bool then raw != 0
         when :int, :usize then Integer(raw)
         when :float then Float(raw)
         when :char then Values.char_string(raw)
-        when :ptr then Handle.new(raw.nil? ? 0 : raw)
+        when :ptr
+          address = raw.nil? ? 0 : raw.to_i
+          Handle.new(address, release: release && _xz_releaser(release))
         else raise MarshallError, Values.unsupported(context, symbol)
+        end
+      end
+
+      # Binds the deallocator symbol a `transfer` return names. It takes one
+      # borrowed `Ptr` and returns `Unit` (docs/01-bridge.md section 4.6).
+      def _xz_releaser(symbol)
+        lambda do |address|
+          xz_loader.function(symbol.to_s, [Fiddle::TYPE_VOIDP], Fiddle::TYPE_VOID,
+                             need_gvl: true).call(address)
         end
       end
     end

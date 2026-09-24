@@ -23,6 +23,12 @@ module RailsXz
       # `Unit` has no C declaration as an argument; it is valid as a return only.
       RETURN_ONLY = %w[Unit].freeze
 
+      # Primitive types that carry a pointer across the ABI. A `@cstruct` that
+      # has one as a field (recursively) is pointer-carrying too, which the
+      # generator resolves against the declared records (docs/01-bridge.md
+      # section 4.6).
+      POINTER_CARRYING = %w[Str Bytes Ptr].freeze
+
       module_function
 
       def primitive?(name)
@@ -35,6 +41,10 @@ module RailsXz
 
       def return_only?(name)
         RETURN_ONLY.include?(name)
+      end
+
+      def pointer_primitive?(name)
+        POINTER_CARRYING.include?(name)
       end
     end
   end
