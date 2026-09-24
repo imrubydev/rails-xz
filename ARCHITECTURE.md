@@ -96,6 +96,13 @@ Rules:
 - `Result` cannot cross the C ABI. A C-representable Xz wrapper is required; the
   Ruby binding maps its status/out-parameter back to a raised typed error. See
   [docs/01-bridge.md](docs/01-bridge.md).
+- A pointer parameter is borrowed and a pointer return is retained by the library
+  unless the `.xzint` marks it `transfer`. A `transfer` parameter moves ownership
+  to the callee (the binding allocates a callee-owned buffer for `Str`/`Bytes`
+  and consumes a `Ptr` handle); a `transfer` return names a `release` symbol the
+  binding calls after copying the value. A signature the binding cannot honor is
+  a generation error, never a lossy copy
+  ([docs/01-bridge.md §4.6](docs/01-bridge.md)).
 
 ### 3.2 `rails-xz-agent`
 
@@ -173,6 +180,9 @@ bridge produces:
 allocates the cell, passes its address, and reads the updated value back. A
 signature with a `mut` parameter returns `[value, out]` so the updated cells reach
 the caller alongside the return value ([docs/01-bridge.md §4.5](docs/01-bridge.md)).
+A `transfer` parameter or return moves pointer ownership as the `.xzint`
+declares; the bridge honors it for `Str`/`Bytes`/`Ptr` and refuses a by-value
+`@cstruct` transfer ([docs/01-bridge.md §4.6](docs/01-bridge.md)).
 
 At the pinned compiler, `xz build --shared` does not lay out a by-value
 `@cstruct` larger than 16 bytes per its own header; the bridge refuses such a

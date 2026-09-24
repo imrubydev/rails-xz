@@ -4,7 +4,57 @@ require "test_helper"
 
 class InterfaceTest < Minitest::Test
   def parse(source)
+    source = "@interface foreign\n#{source}" unless source.start_with?("@interface")
     RailsXz::Bridge::Interface.parse(source, path: "lib.xzint")
+  end
+
+  def test_requires_the_interface_marker
+    error = assert_raises(RailsXz::Bridge::InterfaceError) do
+      RailsXz::Bridge::Interface.parse("extern func noop()\n", path: "lib.xzint")
+    end
+
+    assert_match(/exactly one '@interface/, error.message)
+  end
+
+  def test_reads_the_interface_kind
+    assert_equal :foreign, parse("extern func noop()\n").kind
+    assert_equal :export, parse("@interface export\nextern func noop()\n").kind
+  end
+
+  def test_rejects_a_marker_that_is_not_first
+    error = assert_raises(RailsXz::Bridge::InterfaceError) do
+      parse("extern func noop()\n@interface foreign\n")
+    end
+
+    assert_match(/must be the first construct/, error.message)
+  end
+
+  def test_rejects_an_unknown_interface_kind
+    error = assert_raises(RailsXz::Bridge::InterfaceError) do
+      parse("@interface mixed\nextern func noop()\n")
+    end
+
+    assert_match(/expected 'export' or 'foreign'/, error.message)
+  end
+
+  def test_parses_a_transfer_parameter
+    parsed = parse("extern func write(transfer data: Bytes) -> Int\n")
+    param = parsed.externs[0].params[0]
+
+    assert param.transfer
+    refute param.mutable
+  end
+
+  def test_parses_a_transfer_return_and_release_symbol
+    parsed = parse(<<~XZINT)
+      extern func free(ptr: Ptr) -> Unit
+      extern func strdup(s: Str) -> transfer Str release free
+    XZINT
+    extern = parsed.externs[1]
+
+    assert extern.transfer_return
+    assert_equal "free", extern.release
+    assert_equal "Str", extern.return_type.name
   end
 
   def test_parses_extern_signatures

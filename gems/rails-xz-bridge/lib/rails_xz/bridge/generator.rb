@@ -109,6 +109,128 @@ module RailsXz
                       context: "extern '#{extern.name}' return")
         end
         validate_effects!
+        validate_ownership!(parsed)
+      end
+
+      # A `transfer` parameter or return moves pointer ownership across the ABI
+      # and is legal only on an `@interface foreign`. The Ruby binding can honor
+      # it for `Str`/`Bytes`/`Ptr`; a `@cstruct` handle is refused rather than
+      # copied, and a transfer return must name a `(Ptr) -> Unit` deallocator
+      # declared in the interface (docs/01-bridge.md section 4.6).
+      def validate_ownership!(parsed)
+        if parsed.kind == :export
+          reject_transfer_on_export!(parsed)
+          return
+        end
+
+        parsed.externs.each do |extern|
+          extern.params.each do |param|
+            next unless param.transfer
+
+            unless pointer_carrying?(param.type, parsed.cstructs)
+              raise GenerationError,
+                    "extern '#{extern.name}' parameter '#{param.name}': 'transfer' " \
+                    "requires a pointer-carrying type (Str, Bytes, Ptr, or a " \
+                    "@cstruct with one)"
+            end
+            next unless parsed.cstructs.key?(param.type.name)
+
+            raise GenerationError,
+                  "extern '#{extern.name}' parameter '#{param.name}': the bridge " \
+                  "cannot take ownership of a by-value @cstruct; pass its pointer " \
+                  "fields individually or use a foreign `Ptr`"
+          end
+
+          next unless extern.transfer_return
+
+          check_transfer_return!(extern, parsed)
+        end
+
+        validate_release_symbols!(parsed)
+      end
+
+      def reject_transfer_on_export!(parsed)
+        parsed.externs.each do |extern|
+          if extern.params.any?(&:transfer) || extern.transfer_return || extern.release
+            raise GenerationError,
+                  "extern '#{extern.name}': 'transfer' ownership cannot cross an " \
+                  "'@interface export' boundary; declare it only in an " \
+                  "'@interface foreign'"
+          end
+        end
+      end
+
+      def check_transfer_return!(extern, parsed)
+        if parsed.cstructs.key?(extern.return_type.name)
+          raise GenerationError,
+                "extern '#{extern.name}' return: the bridge cannot honor a " \
+                "transfer return of a @cstruct handle; return Str, Bytes, or Ptr"
+        end
+        unless pointer_carrying?(extern.return_type, parsed.cstructs)
+          raise GenerationError,
+                "extern '#{extern.name}' return: 'transfer' requires a " \
+                "pointer-carrying type (Str, Bytes, or Ptr)"
+        end
+        if extern.release.nil?
+          raise GenerationError,
+                "extern '#{extern.name}' return: a 'transfer' return must name " \
+                "its deallocator with 'release <symbol>'"
+        end
+      end
+
+      def validate_release_symbols!(parsed)
+        by_name = parsed.externs.to_h { |extern| [extern.name, extern] }
+
+        parsed.externs.each do |extern|
+          next if extern.release.nil?
+
+          unless extern.transfer_return
+            raise GenerationError,
+                  "extern '#{extern.name}' return: 'release' names a deallocator " \
+                  "for a 'transfer' return, but this return is not 'transfer'"
+          end
+          if extern.release == extern.name
+            raise GenerationError,
+                  "extern '#{extern.name}' return: a function cannot release its " \
+                  "own returned buffer"
+          end
+
+          release = by_name[extern.release]
+          if release.nil?
+            raise GenerationError,
+                  "extern '#{extern.name}' return: 'release' names " \
+                  "'#{extern.release}', which is not an 'extern func' declared in " \
+                  "this interface"
+          end
+          next if release_symbol?(release)
+
+          raise GenerationError,
+                "extern '#{extern.name}' return: release symbol " \
+                "'#{extern.release}' must be declared as " \
+                "'func(ptr: Ptr) -> Unit' with one borrowed pointer parameter"
+        end
+      end
+
+      def release_symbol?(extern)
+        return false unless extern.params.length == 1
+        return false if extern.transfer_return
+
+        param = extern.params.first
+        return false if param.mutable || param.transfer
+        return false unless param.type.name == "Ptr"
+        return false if param.type.generic?
+
+        extern.return_type.nil? || extern.return_type.name == "Unit"
+      end
+
+      def pointer_carrying?(type, cstructs)
+        return false if type.generic?
+        return true if Types.pointer_primitive?(type.name)
+
+        record = cstructs[type.name]
+        return false if record.nil?
+
+        record.fields.any? { |field| pointer_carrying?(field.type, cstructs) }
       end
 
       def validate_effects!
@@ -210,7 +332,8 @@ module RailsXz
           lines << ""
           lines << "  # #{signature_doc(extern)}"
           lines << "  xz_func :#{extern.name}, #{brace_list(param_symbols(extern))}, " \
-                   "#{type_symbol(extern.return_type).inspect}#{effects_option(extern)}"
+                   "#{type_symbol(extern.return_type).inspect}" \
+                   "#{effects_option(extern)}#{transfer_option(extern)}#{release_option(extern)}"
         end
 
         lines << "end"
@@ -255,10 +378,26 @@ module RailsXz
 
       def signature_doc(extern)
         params = extern.params.map do |param|
-          "#{param.mutable ? 'mut ' : ''}#{param.name}: #{render_type(param.type)}"
+          modifier = if param.mutable
+                       "mut "
+                     elsif param.transfer
+                       "transfer "
+                     else
+                       ""
+                     end
+          "#{modifier}#{param.name}: #{render_type(param.type)}"
         end.join(", ")
-        returns = extern.return_type ? " -> #{render_type(extern.return_type)}" : ""
-        "extern func #{extern.name}(#{params})#{returns}"
+        "extern func #{extern.name}(#{params})#{return_doc(extern)}"
+      end
+
+      def return_doc(extern)
+        return "" if extern.return_type.nil?
+
+        rendered = render_type(extern.return_type)
+        return " -> #{rendered}" unless extern.transfer_return
+
+        release = extern.release ? " release #{extern.release}" : ""
+        " -> transfer #{rendered}#{release}"
       end
 
       def type_symbol(type, mutable: false)
@@ -276,6 +415,25 @@ module RailsXz
         return "" if labels.nil?
 
         ", effects: #{labels.inspect}"
+      end
+
+      # The names of the parameters whose ownership moves to the callee. The
+      # runtime allocates a callee-owned buffer for them (docs/01-bridge.md
+      # section 4.6).
+      def transfer_option(extern)
+        names = extern.params.select(&:transfer).map { |param| param.name.to_sym }
+        return "" if names.empty?
+
+        ", transfer: #{names.inspect}"
+      end
+
+      # The deallocator symbol for a transfer return. The runtime calls it on the
+      # buffer once the value is copied into Ruby (docs/01-bridge.md section
+      # 4.6).
+      def release_option(extern)
+        return "" unless extern.transfer_return && extern.release
+
+        ", release: #{extern.release.to_sym.inspect}"
       end
 
       def render_type(type)

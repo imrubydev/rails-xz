@@ -4,11 +4,14 @@ module RailsXz
   module Bridge
     # Parser for the `.xzint` interface subset: a declaration-only Xz source
     # whose only top-level items are `extern func` signatures and `@cstruct
-    # record` declarations (docs/10-ffi-interop.md; docs/01-bridge.md section 2).
+    # record` declarations, opened by exactly one `@interface export|foreign`
+    # marker (docs/10-ffi-interop.md; docs/01-bridge.md section 2).
     #
     # The front end of the Xz compiler is authoritative for the full grammar;
     # this parser covers exactly the subset an interface file may contain so the
-    # Ruby generator can refuse anything else by name.
+    # Ruby generator can refuse anything else by name. The marker's kind decides
+    # whether `transfer` ownership is legal, and `transfer`/`release` clauses are
+    # carried on the parsed declarations for the generator to validate.
     module Interface
       Type = Struct.new(:name, :args, keyword_init: true) do
         def generic?
@@ -16,11 +19,12 @@ module RailsXz
         end
       end
 
-      Param = Struct.new(:name, :type, :mutable, keyword_init: true)
+      Param = Struct.new(:name, :type, :mutable, :transfer, keyword_init: true)
       Field = Struct.new(:name, :type, keyword_init: true)
       Cstruct = Struct.new(:name, :fields, keyword_init: true)
-      Extern = Struct.new(:name, :params, :return_type, :type_params, keyword_init: true)
-      Parsed = Struct.new(:cstructs, :externs, keyword_init: true)
+      Extern = Struct.new(:name, :params, :return_type, :type_params, :transfer_return,
+                          :release, keyword_init: true)
+      Parsed = Struct.new(:cstructs, :externs, :kind, keyword_init: true)
 
       module_function
 
@@ -141,11 +145,17 @@ module RailsXz
         def parse
           cstructs = {}
           externs = []
+          kind = nil
 
           until eof?
             if at_ident?("extern")
               extern = parse_extern
               externs << extern
+            elsif at_interface_marker?
+              raise error("the '@interface' marker must be the first construct") unless @pos.zero?
+              raise error("'.xzint' interface files allow exactly one '@interface' marker") if kind
+
+              kind = parse_interface_marker
             elsif at_punct?("@")
               cstruct = parse_cstruct
               cstructs[cstruct.name] = cstruct
@@ -158,10 +168,28 @@ module RailsXz
             end
           end
 
-          Parsed.new(cstructs: cstructs, externs: externs)
+          if kind.nil?
+            raise error(
+              "'.xzint' interface files must open with exactly one " \
+              "'@interface export' or '@interface foreign' marker"
+            )
+          end
+
+          Parsed.new(cstructs: cstructs, externs: externs, kind: kind)
         end
 
         private
+
+        def parse_interface_marker
+          consume_punct("@")
+          expect_ident("interface")
+          kind = expect_ident_value("interface kind")
+          unless %w[export foreign].include?(kind)
+            raise error("expected 'export' or 'foreign', found #{kind.inspect}")
+          end
+
+          kind.to_sym
+        end
 
         def parse_extern
           consume_ident("extern")
@@ -172,12 +200,23 @@ module RailsXz
           params = parse_params
           expect_punct(")")
           return_type = nil
+          transfer_return = false
+          release = nil
           if at_punct?("->")
             advance
+            if at_ident?("transfer")
+              advance
+              transfer_return = true
+            end
             return_type = parse_type
+            if at_ident?("release")
+              advance
+              release = expect_ident_value("release symbol")
+            end
           end
 
-          Extern.new(name: name, params: params, return_type: return_type, type_params: type_params)
+          Extern.new(name: name, params: params, return_type: return_type,
+                     type_params: type_params, transfer_return: transfer_return, release: release)
         end
 
         def parse_cstruct
@@ -205,13 +244,17 @@ module RailsXz
 
           loop do
             mutable = false
+            transfer = false
             if at_ident?("mut")
               advance
               mutable = true
+            elsif at_ident?("transfer")
+              advance
+              transfer = true
             end
             name = expect_ident_value("parameter name")
             expect_punct(":")
-            params << Param.new(name: name, type: parse_type, mutable: mutable)
+            params << Param.new(name: name, type: parse_type, mutable: mutable, transfer: transfer)
             break unless at_punct?(",")
 
             advance
@@ -282,6 +325,15 @@ module RailsXz
 
         def at_ident?(value)
           current.kind == :ident && current.value == value
+        end
+
+        def at_interface_marker?
+          at_punct?("@") && peek_ident?(1, "interface")
+        end
+
+        def peek_ident?(offset, value)
+          token = @tokens[@pos + offset]
+          token && token.kind == :ident && token.value == value
         end
 
         def at_punct?(value)

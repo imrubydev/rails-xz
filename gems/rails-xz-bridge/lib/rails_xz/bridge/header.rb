@@ -151,7 +151,7 @@ module RailsXz
             end
           end
 
-          Interface::Parsed.new(cstructs: @cstructs, externs: externs)
+          Interface::Parsed.new(cstructs: @cstructs, externs: externs, kind: :export)
         end
 
         private
@@ -220,7 +220,9 @@ module RailsXz
             name: name,
             params: params,
             return_type: to_xz_return(ret, context: "return of '#{name}'"),
-            type_params: []
+            type_params: [],
+            transfer_return: false,
+            release: nil
           )
         end
 
@@ -237,7 +239,8 @@ module RailsXz
             ctype = parse_c_type
             name = expect_ident_value("parameter name")
             mapped = to_xz(ctype, context: "parameter '#{name}'")
-            params << Interface::Param.new(name: name, type: mapped[:type], mutable: mapped[:mutable])
+            params << Interface::Param.new(name: name, type: mapped[:type],
+                                           mutable: mapped[:mutable], transfer: false)
             break unless at_punct?(",")
 
             advance

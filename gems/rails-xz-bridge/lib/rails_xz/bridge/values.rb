@@ -24,15 +24,36 @@ module RailsXz
 
       # A `Ptr` is an opaque handle, never a bare number: a stray Integer is
       # rejected so it cannot be passed as an address by accident. `nil` is the
-      # one null form (docs/01-bridge.md section 4.4).
+      # one null form (docs/01-bridge.md section 4.4). A handle whose ownership
+      # already moved is dead and cannot be passed again.
       def handle_address(value, context)
         case value
         when nil then 0
-        when Handle then value.to_i
+        when Handle
+          if value.consumed?
+            raise MarshallError, "#{context}: #{value.inspect} was already transferred"
+          end
+
+          value.to_i
         else
           raise MarshallError,
                 "#{context}: Ptr expects a RailsXz::Bridge::Handle, got #{value.class}"
         end
+      end
+
+      # A `transfer` parameter moves ownership to the callee, so the handle is
+      # consumed and cannot be passed or released again (docs/01-bridge.md
+      # section 4.6).
+      def transfer_address(value, context)
+        return 0 if value.nil?
+        unless value.is_a?(Handle)
+          raise MarshallError,
+                "#{context}: transfer Ptr expects a RailsXz::Bridge::Handle, " \
+                "got #{value.class}"
+        end
+
+        value.consume!
+        value.to_i
       end
 
       def unsupported(context, symbol)

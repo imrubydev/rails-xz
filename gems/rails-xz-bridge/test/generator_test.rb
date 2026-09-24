@@ -15,6 +15,7 @@ class GeneratorTest < Minitest::Test
   XZINT
 
   def generate(source, **options)
+    source = "@interface foreign\n#{source}" unless source.start_with?("@interface")
     RailsXz::Bridge::Generator
       .new("libcurl.xzint", source: source, **options)
       .generate
@@ -204,5 +205,100 @@ class GeneratorTest < Minitest::Test
     assert binding.declared_functions.key?(:add)
     assert_equal({ a: :int, b: :int }, binding.declared_functions.fetch(:add)[:params])
     assert_equal :int, binding.declared_functions.fetch(:add)[:returns]
+  end
+
+  def test_emits_a_transfer_parameter
+    output = generate("extern func write(transfer data: Bytes) -> Int\n")
+
+    assert_includes output, "# extern func write(transfer data: Bytes) -> Int"
+    assert_includes output, "xz_func :write, { data: :bytes }, :int, transfer: [:data]"
+  end
+
+  def test_emits_a_transfer_return_and_release
+    output = generate(<<~XZINT)
+      extern func free(ptr: Ptr) -> Unit
+      extern func strdup(s: Str) -> transfer Str release free
+    XZINT
+
+    assert_includes output, "# extern func strdup(s: Str) -> transfer Str release free"
+    assert_includes output, "xz_func :strdup, { s: :str }, :str, release: :free"
+  end
+
+  def test_ownership_metadata_reaches_the_declared_function
+    output = generate(<<~XZINT, module_name: "OwnershipBinding")
+      extern func free(ptr: Ptr) -> Unit
+      extern func strdup(s: Str) -> transfer Str release free
+      extern func write(transfer data: Bytes) -> Int
+    XZINT
+
+    namespace = Module.new
+    namespace.module_eval(output)
+    binding = namespace.const_get(:OwnershipBinding)
+
+    assert_equal [:data], binding.declared_functions.fetch(:write)[:transfer]
+    assert_equal :free, binding.declared_functions.fetch(:strdup)[:release]
+    assert_empty binding.declared_functions.fetch(:free)[:transfer]
+  end
+
+  def test_rejects_transfer_on_an_export_interface
+    error = assert_raises(RailsXz::Bridge::GenerationError) do
+      generate("@interface export\nextern func write(transfer data: Bytes) -> Int\n")
+    end
+
+    assert_match(/cannot cross an '@interface export'/, error.message)
+  end
+
+  def test_rejects_transfer_of_a_scalar
+    error = assert_raises(RailsXz::Bridge::GenerationError) do
+      generate("extern func write(transfer n: Int) -> Int\n")
+    end
+
+    assert_match(/pointer-carrying/, error.message)
+  end
+
+  def test_rejects_a_transfer_return_without_a_release_symbol
+    error = assert_raises(RailsXz::Bridge::GenerationError) do
+      generate("extern func make() -> transfer Str\n")
+    end
+
+    assert_match(/must name its deallocator/, error.message)
+  end
+
+  def test_rejects_release_on_a_non_transfer_return
+    error = assert_raises(RailsXz::Bridge::GenerationError) do
+      generate("extern func free(ptr: Ptr) -> Unit\nextern func make() -> Str release free\n")
+    end
+
+    assert_match(/not 'transfer'/, error.message)
+  end
+
+  def test_rejects_a_release_symbol_that_is_not_declared
+    error = assert_raises(RailsXz::Bridge::GenerationError) do
+      generate("extern func strdup(s: Str) -> transfer Str release nope\n")
+    end
+
+    assert_match(/not an 'extern func' declared/, error.message)
+  end
+
+  def test_rejects_a_release_symbol_with_the_wrong_signature
+    error = assert_raises(RailsXz::Bridge::GenerationError) do
+      generate(<<~XZINT)
+        extern func free(n: Int) -> Unit
+        extern func strdup(s: Str) -> transfer Str release free
+      XZINT
+    end
+
+    assert_match(/one borrowed pointer parameter/, error.message)
+  end
+
+  def test_rejects_a_transfer_of_a_by_value_cstruct
+    error = assert_raises(RailsXz::Bridge::GenerationError) do
+      generate(<<~XZINT)
+        @cstruct record Buf { ptr: Ptr }
+        extern func take(transfer buf: Buf) -> Int
+      XZINT
+    end
+
+    assert_match(/cannot take ownership of a by-value @cstruct/, error.message)
   end
 end

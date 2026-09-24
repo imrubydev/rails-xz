@@ -49,6 +49,13 @@ the same `.xzint` grammar and emits the same shape, so the CLI and the gem stay
 interchangeable. This is the same fallback strategy `next.xz` uses for
 TypeScript.
 
+An `.xzint` opens with exactly one `@interface export|foreign` marker. The kind
+decides the ownership rules (§4.6): an `@interface export` surface (the one
+`xz build --shared` emits) borrows its parameters and retains its returns, so it
+cannot declare `transfer` in either direction; an `@interface foreign` library
+may take and hand back ownership. A file with no marker, or with more than one,
+is rejected rather than guessed.
+
 ### 2.1 Generating from the compiler's header
 
 When only the compiled artifact is available — a third-party shared library, or
@@ -115,10 +122,13 @@ and decodes on return. `Bytes` crosses as `String` with `Encoding::BINARY` and i
 passed through without transcoding. A `Str`/`Bytes` return value is read from the
 returned pointer/length pair and copied into a fresh Ruby String.
 
-The shared library exports no release hook, so the binding cannot free a buffer
-the callee allocated for a return value: a function that allocates a fresh
-return string leaks that buffer. Reclaiming it needs an ownership contract the
-`.xzint` grammar cannot yet express (§9).
+A return without `transfer` stays the library's buffer, so the binding copies it
+and leaves it alone. A `transfer` return moves ownership to Ruby, so the binding
+copies the value and then calls the named `release` symbol on the source buffer
+(§4.6). A `mut Str`/`mut Bytes` cell that the callee repoints is the same problem
+as a fresh transfer return; the copy-out value is read but the callee's new
+buffer is not freed, which the release hook resolves only for a declared
+`transfer` return.
 
 ### 4.3 `@cstruct`
 
@@ -156,10 +166,11 @@ position and a non-handle in a `@cstruct` field, so an address cannot be passed
 by accident; `nil` is the one null form. `Handle` exposes `#to_i` and `#null?`
 for interop.
 
-`transfer` and handle lifetime are not implemented yet: the binding does not
-track ownership, so a handle may currently be passed again. The full rule — a
-handle is never copied and is dead after `transfer` — lands with the transfer
-slice.
+`transfer` and handle lifetime land with the ownership slice (§4.6): a handle
+from a `transfer` return owns its pointer and releases it with `#release!`, and
+passing a handle to a `transfer` parameter consumes it, so it cannot be passed
+or released again. A `Ptr` field inside a `@cstruct` is still copied with the
+record; a handle transfer of a whole `@cstruct` is refused at generation.
 
 ### 4.5 `mut` cells
 
@@ -186,6 +197,42 @@ shape is decided by the signature alone, so the caller cannot forget to read an
 out value. The mapping is per type: a scalar cell holds a scalar, `mut Str` /
 `mut Bytes` / `mut @cstruct` / `mut Ptr` hold their by-value counterpart, and a
 cell type outside the type table is a hard error.
+
+### 4.6 Ownership (`transfer` / `release`)
+
+A pointer that crosses the ABI has an owner. By default a parameter is
+**borrowed** (the callee may read it only for the call) and a return is
+**retained by the library** (Ruby must not free it). A `transfer` modifier moves
+ownership in either direction, and it is legal only on an `@interface foreign`
+(§2). The generated declaration carries the clauses straight from the `.xzint`:
+
+```ruby
+xz_func :strdup, { s: :str }, :str, release: :free
+xz_func :write, { data: :bytes }, :int, transfer: [:data]
+```
+
+The runtime honors the two directions:
+
+- **`transfer` parameter.** Ownership moves to the callee, which may retain the
+  buffer past the call. For `Str`/`Bytes` the binding allocates the buffer from
+  the C heap and copies the bytes into it, so it outlives Ruby's GC and the
+  callee's own deallocator reclaims it; the binding never frees it. For `Ptr` the
+  handle is consumed (`Handle#consume!`) and cannot be passed or released again.
+- **`transfer` return.** The named `release <symbol>` is the library's
+  deallocator (`func(ptr: Ptr) -> Unit`). For `Str`/`Bytes` the binding copies the
+  buffer into a Ruby String and then calls the symbol on the source pointer, so
+  the value is both safe and leak-free. For `Ptr` the binding returns a `Handle`
+  that owns the pointer and exposes `#release!`, which calls the symbol exactly
+  once; `nil`/zero and an already-consumed handle are no-ops, so a double free is
+  impossible.
+
+A signature the binding cannot honor is refused at generation time, never
+degraded: `transfer` on an `@interface export`, a `transfer` of a scalar, a
+`transfer` of a by-value `@cstruct`, a `transfer` return without a `release`
+symbol, and a `release` whose symbol is not a `(Ptr) -> Unit` extern in the same
+interface are all `GenerationError`s. A `mut Str`/`mut Bytes` cell that the
+callee repoints still leaks the fresh buffer (there is no per-cell release
+clause); declare such a function with a `transfer` return instead.
 
 ## 5. The `Result` problem
 
@@ -270,12 +317,14 @@ parameter is prefixed `mut_`, and a `@cstruct` is its declared name.
   the first call.
 - `xz_cstruct(name, fields)` defines a Ruby `Data` constant with matching field
   order. The C layout stays authoritative.
-- `xz_func(name, params, returns, effects: nil, release_gvl: false)` defines a
-  positional Ruby method that marshals its arguments to the C ABI, calls the
-  symbol, and returns the Xz value; with a `mut` parameter it returns
+- `xz_func(name, params, returns, effects: nil, release_gvl: false, transfer: [], release: nil)`
+  defines a positional Ruby method that marshals its arguments to the C ABI,
+  calls the symbol, and returns the Xz value; with a `mut` parameter it returns
   `[value, out]` (§4.5). `effects` is the compiler-verified effect profile of an
   Xz `@export` function and drives the GVL policy (§7); `release_gvl: true`
-  forces the GVL to be released for this call.
+  forces the GVL to be released for this call. `transfer` names the parameters
+  whose ownership moves to the callee and `release` names the deallocator symbol
+  of a `transfer` return (§4.6).
 - A type the marshaller cannot represent is a `RailsXz::Bridge::MarshallError`,
   never a silent cast. Every type in the table above is marshalled; a type
   outside it (for example `mut Unit`) fails loudly.
@@ -318,8 +367,10 @@ set of functions.
 
 - Should `--lang ruby` live in the Xz CLI or in `rails-xz-bridge`? (Current
   plan: the CLI, with the gem generator as a compatible fallback.)
-- Zero-copy ownership rules for retained pointers need a contract syntax that
-  `.xzint` cannot currently express.
+- `transfer` ownership is supported, but the binding still copies a `Str`/`Bytes`
+  transfer parameter into a callee-owned buffer rather than passing a Ruby buffer
+  zero-copy; true zero-copy would need a `Bytes` owner that Ruby does not free. A
+  `mut Str`/`mut Bytes` cell that the callee repoints has no release clause.
 - `Fiddle` is the default for scalar/pointer signatures and `ffi` is required for
   by-value aggregates (§3); the open question is whether to move the whole
   runtime to `ffi` once it is available on every target Ruby version.

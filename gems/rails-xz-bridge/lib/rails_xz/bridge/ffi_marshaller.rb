@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "ffi"
+require "fiddle"
 
 module RailsXz
   module Bridge
@@ -14,6 +15,16 @@ module RailsXz
     # generated type symbols to ffi types and moves values across
     # (docs/01-bridge.md sections 4, 6.1).
     class FfiMarshaller
+      # A `transfer` parameter hands ownership of its buffer to the callee, so
+      # the buffer must outlive Ruby's GC and never be freed here; it is
+      # allocated from the C heap and the callee's own deallocator reclaims it
+      # (docs/01-bridge.md section 4.6).
+      module LibC
+        extend FFI::Library
+        ffi_lib FFI::Library::LIBC
+        attach_function :malloc, [:size_t], :pointer
+      end
+
       class XzStr < FFI::Struct
         layout :ptr, :pointer, :len, :size_t
       end
@@ -57,7 +68,7 @@ module RailsXz
         @cstruct_classes = {}
       end
 
-      def call(name, params, returns, args, release_gvl: false)
+      def call(name, params, returns, args, release_gvl: false, transfer: [], release: nil)
         function = @loader.ffi_function(
           name.to_s,
           return_type(returns, context: "#{name} return"),
@@ -75,11 +86,13 @@ module RailsXz
             cells[param] = build_cell(symbol, args[index], keepalive, context)
             cells[param].pointer
           else
-            encode(symbol, args[index], keepalive, context: context)
+            encode(symbol, args[index], keepalive,
+                   context: context, transfer: transfer.include?(param))
           end
         end
 
-        value = decode(returns, function.call(*encoded), context: "#{name} return")
+        value = decode(returns, function.call(*encoded), context: "#{name} return",
+                                                       release: release)
         return value if cells.empty?
 
         [value, cells.transform_values(&:read)]
@@ -155,7 +168,9 @@ module RailsXz
 
       # -- encode (Ruby -> C) --------------------------------------------------
 
-      def encode(symbol, value, keepalive, context:)
+      def encode(symbol, value, keepalive, context:, transfer: false)
+        return encode_transfer(symbol, value, context) if transfer
+
         case symbol
         when :bool then value ? true : false
         when :int, :usize then Integer(value)
@@ -171,6 +186,56 @@ module RailsXz
             raise MarshallError, Values.unsupported(context, symbol)
           end
         end
+      end
+
+      # A `transfer` parameter moves ownership to the callee, so a `Str`/`Bytes`
+      # buffer is allocated from the C heap (never freed by Ruby) and a `Ptr`
+      # handle is consumed (docs/01-bridge.md section 4.6).
+      def encode_transfer(symbol, value, context)
+        case symbol
+        when :str then transfer_str(value, context)
+        when :bytes then transfer_bytes(value, context)
+        when :ptr
+          address = Values.transfer_address(value, context)
+          address.zero? ? nil : FFI::Pointer.new(address)
+        else
+          raise MarshallError,
+                "#{context}: the bridge cannot honor transfer ownership for '#{symbol}'"
+        end
+      end
+
+      def transfer_str(value, context)
+        unless value.is_a?(String)
+          raise MarshallError, "#{context}: Str expects a String, got #{value.class}"
+        end
+
+        bytes = value.encode(Encoding::UTF_8)
+        struct = XzStr.new
+        struct[:ptr] = transfer_buffer(bytes)
+        struct[:len] = bytes.bytesize
+        struct
+      end
+
+      def transfer_bytes(value, context)
+        unless value.is_a?(String)
+          raise MarshallError, "#{context}: Bytes expects a String, got #{value.class}"
+        end
+
+        bytes = value.b
+        struct = XzBytes.new
+        struct[:ptr] = transfer_buffer(bytes)
+        struct[:len] = bytes.bytesize
+        struct
+      end
+
+      def transfer_buffer(bytes)
+        return nil if bytes.empty?
+
+        pointer = LibC.malloc(bytes.bytesize)
+        raise MarshallError, "could not allocate a transfer buffer" if pointer.null?
+
+        pointer.put_bytes(0, bytes)
+        pointer
       end
 
       # ffi rejects a bare Integer for `:pointer`, so an address becomes an
@@ -304,22 +369,42 @@ module RailsXz
 
       # -- decode (C -> Ruby) --------------------------------------------------
 
-      def decode(symbol, raw, context:)
+      def decode(symbol, raw, context:, release: nil)
         case symbol
         when :unit then nil
         when :bool then raw ? true : false
         when :int, :usize then Integer(raw)
         when :float then Float(raw)
         when :char then Values.char_string(raw)
-        when :ptr then Handle.new(raw.nil? ? 0 : raw.to_i)
-        when :str then decode_str(raw)
-        when :bytes then decode_bytes(raw)
+        when :ptr
+          address = raw.nil? ? 0 : raw.to_i
+          Handle.new(address, release: release && releaser(release))
+        when :str
+          decode_str(raw).tap { release_buffer(raw[:ptr], release) }
+        when :bytes
+          decode_bytes(raw).tap { release_buffer(raw[:ptr], release) }
         else
           if cstruct?(symbol)
             decode_cstruct(symbol, raw, context)
           else
             raise MarshallError, Values.unsupported(context, symbol)
           end
+        end
+      end
+
+      # Frees a transfer return's buffer through the named `release` symbol once
+      # its contents are copied into Ruby. A borrowed return passes `nil` and
+      # the buffer is left alone (docs/01-bridge.md section 4.6).
+      def release_buffer(pointer, release)
+        return if release.nil? || pointer.nil? || pointer.null?
+
+        releaser(release).call(pointer.to_i)
+      end
+
+      def releaser(symbol)
+        lambda do |address|
+          @loader.function(symbol.to_s, [Fiddle::TYPE_VOIDP], Fiddle::TYPE_VOID,
+                           need_gvl: true).call(address)
         end
       end
 
