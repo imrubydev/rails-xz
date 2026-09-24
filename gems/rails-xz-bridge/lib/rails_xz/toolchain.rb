@@ -25,6 +25,14 @@ module RailsXz
     Error = Class.new(StandardError)
     MissingCompiler = Class.new(Error)
 
+    # The `--version` probe spawns a subprocess, and the agent retry loop asks
+    # for the CLI on every attempt. Cache the answer per path, keyed by the
+    # file's identity so a replaced binary re-probes (docs/07-dev-environment.md
+    # section 2).
+    PROBE_CACHE = {}
+    PROBE_LOCK = Mutex.new
+    private_constant :PROBE_CACHE, :PROBE_LOCK
+
     module_function
 
     # Returns the path to the Xz language CLI.
@@ -47,9 +55,53 @@ module RailsXz
       !path.empty? && executable_file?(path) && language_cli?(path)
     end
 
+    # Clears the memoized probe. Call this after replacing the compiler binary
+    # in place while it keeps its old identity.
+    def reset!
+      PROBE_LOCK.synchronize { PROBE_CACHE.clear }
+    end
+
     # Runs `<path> --version` and returns whether the output names the language
     # CLI's subcommands. A path that cannot be run is not the language CLI.
+    #
+    # The answer is memoized per path, keyed by the file's identity, so the
+    # agent retry loop does not re-spawn the CLI on every attempt. Replacing the
+    # binary changes its identity and re-probes; a different `XZ_BIN` path is a
+    # different key.
     def language_cli?(path)
+      stamp = probe_stamp(path)
+      return false if stamp.nil?
+
+      cached = cached_probe(path, stamp)
+      return cached unless cached.nil?
+
+      value = run_probe(path)
+      store_probe(path, stamp, value)
+      value
+    end
+
+    # A file identity stamp: replacing a binary in place (new dev/ino, size,
+    # mtime, or mode) changes it and forces a re-probe. A path that cannot be
+    # stat'd has no stamp and is never cached.
+    def probe_stamp(path)
+      stat = File.stat(path)
+      [stat.dev, stat.ino, stat.size, stat.mtime, stat.mode]
+    rescue SystemCallError
+      nil
+    end
+
+    def cached_probe(path, stamp)
+      PROBE_LOCK.synchronize do
+        entry = PROBE_CACHE[path]
+        entry && entry.first == stamp ? entry.last : nil
+      end
+    end
+
+    def store_probe(path, stamp, value)
+      PROBE_LOCK.synchronize { PROBE_CACHE[path] = [stamp, value] }
+    end
+
+    def run_probe(path)
       stdout, _stderr, _status = Open3.capture3(path, "--version")
       stdout.include?(LANGUAGE_CLI_MARKER)
     rescue SystemCallError
