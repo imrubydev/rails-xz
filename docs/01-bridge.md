@@ -15,7 +15,11 @@ From the Xz FFI spec:
   `Chan`, `enum`, or plain `record` has no C declaration and is rejected.
 - `Str`/`Bytes` cross as two-field structs (pointer + length, no NUL
   guarantee). `mut` parameters map to `T*` (C in/out).
-- The generated header is an honest, complete description of the ABI.
+- The generated header is an honest, complete description of the ABI, with one
+  known gap: at the pinned compiler, `xz build --shared` does not lay out a
+  by-value `@cstruct` larger than the register class per that header, so the
+  bridge refuses such a crossing (§4.3). Everything else in this document
+  assumes the header is authoritative.
 
 The bridge consumes exactly this surface. It never reads Xz source to guess a
 layout; it reads the generated header or the `.xzint` interface.
@@ -126,6 +130,23 @@ A `@cstruct` crosses by value: the binding builds the C struct from a `Data`
 instance on call and reads a returned struct back into a `Data`. A `Str`,
 `Bytes`, or `Ptr` field is marshalled by the same rules as a parameter, and a
 nested `@cstruct` field nests by value.
+
+#### By-value size limit on a compiler-built surface
+
+The C ABI passes and returns a struct of at most two eightbytes (16 bytes) in
+registers, and spills anything larger to memory. At the pinned compiler,
+`xz build --shared` honors only the register path: for a larger by-value
+`@cstruct` the emitted code does not match the header it writes, and a C caller
+that includes the header reads garbage (verified with a C driver against the
+header, not just through the bridge).
+
+To refuse the same silent corruption, a binding generated from an
+`xz build --shared` header (§2.1) is tagged `xz_abi :xz_shared`, and the ffi
+marshaller raises `MarshallError` when such a binding would cross a by-value
+`@cstruct` larger than 16 bytes, as a parameter or a return. A foreign `.xzint`
+interface is left untagged and keeps the full range: a real C library lays its
+structs out per the C ABI, so the guard does not apply to it. Until the compiler
+is fixed, pass a large record through a `mut` pointer.
 
 ### 4.4 Handles
 

@@ -174,6 +174,12 @@ allocates the cell, passes its address, and reads the updated value back. A
 signature with a `mut` parameter returns `[value, out]` so the updated cells reach
 the caller alongside the return value ([docs/01-bridge.md §4.5](docs/01-bridge.md)).
 
+At the pinned compiler, `xz build --shared` does not lay out a by-value
+`@cstruct` larger than 16 bytes per its own header; the bridge refuses such a
+crossing with `MarshallError` rather than pass a corrupted struct
+([docs/01-bridge.md §4.3](docs/01-bridge.md)). A foreign `.xzint` binding is not
+affected.
+
 ### 4.1 The GVL and thread safety
 
 An Xz shared library is native code that may block (I/O, long computation). The
