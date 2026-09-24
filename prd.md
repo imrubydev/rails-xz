@@ -136,6 +136,10 @@ Component contracts are specified in [ARCHITECTURE.md](ARCHITECTURE.md).
   sanctioned pattern is a thin contracted Xz wrapper that maps the error channel
   to an out-parameter or status code, which the Ruby binding re-raises as a
   typed error.
+- **P1 — Ownership transfer.** A `.xzint foreign` function may mark a pointer
+  parameter or return `transfer`; the binding takes or hands back ownership,
+  allocating a callee-owned buffer for a transfer parameter and calling the
+  named `release` symbol for a transfer return instead of leaking it.
 
 ### 5.2 Agent self-correction pipeline (`rails-xz-agent`)
 
